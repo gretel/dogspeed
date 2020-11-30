@@ -22,10 +22,9 @@ import logging
 # TODO: use logging all over the place
 logging.basicConfig(level=logging.INFO)
 from wifi_manager import WifiManager
-# FIXNE: handle failure
-# log.info(WifiManager.setup_network())
 # https://github.com/mitchins/micropython-wifimanager#asynchronous-usage-event-loop
 log.info(WifiManager.start_managing())
+
 # code green
 pixel(0, 32, 0)
 
@@ -143,7 +142,7 @@ async def transmit():
     import ubinascii
     # unique client id
     MACHINE_UID = ubinascii.hexlify(machine.unique_id()).decode('utf-8')
-    print('MACHINE_UID', MACHINE_UID)
+    logger.debug('machine uid {}'.format(MACHINE_UID))
 
     # say hi
     data = {'uid': MACHINE_UID, 'ver': VERSION}
