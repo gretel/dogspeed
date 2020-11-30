@@ -1,8 +1,12 @@
 # in the beginning there is a declaration of a version string
 VERSION = const(0x01)
 
+FILE_STREAM_CFG = '/stream.json'
+FILE_MAG_CAL = '/mag_cal.json'
+
 # bring the noise
 import logging
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger('dogspeed')
 
 import neopixel
@@ -18,9 +22,6 @@ def pixel(r=0, g=0, b=0):
 pixel(0, 0, 32)
 
 # wireless networking
-import logging
-# TODO: use logging all over the place
-logging.basicConfig(level=logging.INFO)
 from wifi_manager import WifiManager
 # https://github.com/mitchins/micropython-wifimanager#asynchronous-usage-event-loop
 log.info(WifiManager.start_managing())
@@ -49,12 +50,12 @@ scale=(1, 1, 1)
 
 try:
     # magnetometer calibration data
-    j = read_json('mag_cal.json')
+    j = read_json(FILE_MAG_CAL)
     # override defaults
     offset=j['offset']
     scale=j['scale']
 except Exception as e:
-    log.warning(e, 'unable to load magnetometer calibration data, using defaults')
+    log.warning(e, 'unable to parse {}, using defaults'.format(FILE_MAG_CAL))
 finally:
     log.info('magnetometer calibration offset: {}, scale: {}'.format(offset, scale))
 
@@ -107,12 +108,12 @@ host = '192.168.4.2'
 port = 2323
 
 try:
-    j = read_json('stream.json')
+    j = read_json(FILE_STREAM_CFG)
     # override defaults
     host=j['host']
     port=j['port']
 except Exception as e:
-    log.warning(e, 'unable to load stream configuration, using defaults')
+    log.warning(e, 'unable to parse {}, using defaults'.format(FILE_STREAM_CFG))
 finally:
     log.info('streaming to {}:{}'.format(host, port))
 
@@ -142,7 +143,7 @@ async def transmit():
     import ubinascii
     # unique client id
     MACHINE_UID = ubinascii.hexlify(machine.unique_id()).decode('utf-8')
-    logger.debug('machine uid {}'.format(MACHINE_UID))
+    log.debug('machine uid {}'.format(MACHINE_UID))
 
     # say hi
     data = {'uid': MACHINE_UID, 'ver': VERSION}
