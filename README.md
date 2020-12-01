@@ -8,7 +8,7 @@ This is intended to control sound synthesis by physical entities moving through 
 
 # Hardware
 
- * `Wemos D1 mini` 
+ * [`Wemos D1 mini`](https://www.banggood.com/5pcs-D1-Mini-V3_0_0-WIFI-Internet-Of-Things-Development-Board-Based-ESP8266-4MB-p-1385321.html)
 
 ## Flash
 
@@ -47,13 +47,18 @@ is working fine but documentation is work in progress
 
 ## Calibration
 
-...
-
-## Usage
-
-...
+Please follow this [instructions](https://github.com/tuupola/micropython-mpu9250#magnetometer-calibration) for now.
 
 # Host
+
+## Reception
+
+For testing a __bsdish__ `netcat` should do:
+
+```shell
+$ nc -ukvvl 2323
+{"g": [0.0194518, 0.059954, -0.010925], "m": [-14.0693, 23.7082, 23.8688], "a": [-4.65672, 0.0407014, 8.56884], "t": 180389812, "c": 29.5632, "f": {"r": 0.603636, "p": 29.1712, "y":-91.0807}}
+```
 
 ## Processing
 
