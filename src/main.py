@@ -77,7 +77,7 @@ from fusion_async import Fusion
 
 async def read_coro():
     # TODO: validate sleepy time
-    await asyncio.sleep_ms(20)
+    await asyncio.sleep_ms(10)
     return imu.acceleration, imu.gyro, imu.magnetic
 
 fuse = Fusion(read_coro)
@@ -167,7 +167,7 @@ async def transmit():
             log.error(e)
             # gracefully
             return
-        await asyncio.sleep_ms(10)
+        await asyncio.sleep_ms(20)
 
 async def main():
     # esp8266 - https://github.com/micropython-IMU/micropython-fusion#311-methods
