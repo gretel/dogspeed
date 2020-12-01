@@ -4,7 +4,7 @@
 
 ## Prototype
 
-This is intended to control sound synthesis by physical entities moving through space in time. i.e. a dog playing in his self-induced soundscape. :dog: :computer: :notes:
+This is intended to control sound synthesis by physical entities moving through space in time, i.e. a dog playing in his self-induced soundscape. :dog: :computer: :notes:
 
 # Hardware
 
@@ -12,7 +12,7 @@ This is intended to control sound synthesis by physical entities moving through 
 
 ## Flash
 
-Due to the use of `uasyncio` version 3 `micropython` version `1.13` is required at least. At the time of this writing the [daily builds for 2M or more of flash](https://micropython.org/download/esp8266/) have been working fine.
+Due to the use of `uasyncio` version 3 `micropython` (not `pycopy` :tongue:) version `1.13` is required at least. At the time of this writing the [`daily builds for 2M or more of flash`](https://micropython.org/download/esp8266/) have been working fine.
 
 ```
 esptool.py --port /dev/cu.usbserial-14310 --baud 1000000 erase_flash
