@@ -1,6 +1,4 @@
-#from micropython import const
-import micropython
-import gc
+import micropython, gc, sys
 
 # https://docs.micropython.org/en/latest/library/micropython.html#micropython.alloc_emergency_exception_buf
 micropython.alloc_emergency_exception_buf(100)

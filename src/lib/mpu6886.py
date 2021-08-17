@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2020 Mika Tuupola
+# Copyright (c) 2020 Mika Tuupola
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of  this software and associated documentation files (the "Software"), to
@@ -18,13 +18,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# https://github.com/tuupola/micropython-mpu9250
+# https://github.com/tuupola/micropython-mpu6886
 
 """
-MicroPython I2C driver for MPU6500 6-axis motion tracking device
+MicroPython I2C driver for MPU6886 6-axis motion tracking device
 """
 
-__version__ = "0.3.0"
+__version__ = "0.1.0-dev"
 
 # pylint: disable=import-error
 import ustruct
@@ -33,6 +33,7 @@ from machine import I2C, Pin
 from micropython import const
 # pylint: enable=import-error
 
+_CONFIG = const(0x1a)
 _GYRO_CONFIG = const(0x1b)
 _ACCEL_CONFIG = const(0x1c)
 _ACCEL_CONFIG2 = const(0x1d)
@@ -41,7 +42,7 @@ _ACCEL_XOUT_L = const(0x3c)
 _ACCEL_YOUT_H = const(0x3d)
 _ACCEL_YOUT_L = const(0x3e)
 _ACCEL_ZOUT_H = const(0x3f)
-_ACCEL_ZOUT_L= const(0x40)
+_ACCEL_ZOUT_L = const(0x40)
 _TEMP_OUT_H = const(0x41)
 _TEMP_OUT_L = const(0x42)
 _GYRO_XOUT_H = const(0x43)
@@ -50,9 +51,9 @@ _GYRO_YOUT_H = const(0x45)
 _GYRO_YOUT_L = const(0x46)
 _GYRO_ZOUT_H = const(0x47)
 _GYRO_ZOUT_L = const(0x48)
+_PWR_MGMT_1 = const(0x6b)
 _WHO_AM_I = const(0x75)
 
-#_ACCEL_FS_MASK = const(0b00011000)
 ACCEL_FS_SEL_2G = const(0b00000000)
 ACCEL_FS_SEL_4G = const(0b00001000)
 ACCEL_FS_SEL_8G = const(0b00010000)
@@ -63,7 +64,6 @@ _ACCEL_SO_4G = 8192 # 1 / 8192 ie. 0.122 mg / digit
 _ACCEL_SO_8G = 4096 # 1 / 4096 ie. 0.244 mg / digit
 _ACCEL_SO_16G = 2048 # 1 / 2048 ie. 0.488 mg / digit
 
-#_GYRO_FS_MASK = const(0b00011000)
 GYRO_FS_SEL_250DPS = const(0b00000000)
 GYRO_FS_SEL_500DPS = const(0b00001000)
 GYRO_FS_SEL_1000DPS = const(0b00010000)
@@ -74,16 +74,16 @@ _GYRO_SO_500DPS = 62.5
 _GYRO_SO_1000DPS = 32.8
 _GYRO_SO_2000DPS = 16.4
 
-_TEMP_SO = 333.87
-_TEMP_OFFSET = 21
+_TEMP_SO = 326.8
+_TEMP_OFFSET = 25
 
 SF_G = 1
 SF_M_S2 = 9.80665 # 1 g = 9.80665 m/s2 ie. standard gravity
 SF_DEG_S = 1
 SF_RAD_S = 0.017453292519943 # 1 deg/s is 0.017453292519943 rad/s
 
-class MPU6500:
-    """Class which provides interface to MPU6500 6-axis motion tracking device."""
+class MPU6886:
+    """Class which provides interface to MPU6886 6-axis motion tracking device."""
     def __init__(
         self, i2c, address=0x68,
         accel_fs=ACCEL_FS_SEL_2G, gyro_fs=GYRO_FS_SEL_250DPS,
@@ -93,9 +93,12 @@ class MPU6500:
         self.i2c = i2c
         self.address = address
 
-        # 0x70 = standalone MPU6500, 0x71 = MPU6250 SIP
-        if self.whoami not in [0x73, 0x71, 0x70]:
-            raise RuntimeError("MPU6500 not found in I2C bus.")
+        if 0x19 != self.whoami:
+            raise RuntimeError("MPU6886 not found in I2C bus.")
+
+        self._register_char(_PWR_MGMT_1, 0b10000000) # reset
+        utime.sleep_ms(100)
+        self._register_char(_PWR_MGMT_1, 0b00000001) # autoselect clock
 
         self._accel_so = self._accel_fs(accel_fs)
         self._gyro_so = self._gyro_fs(gyro_fs)
@@ -141,7 +144,8 @@ class MPU6500:
         Die temperature in celcius as a float.
         """
         temp = self._register_short(_TEMP_OUT_H)
-        return ((temp - _TEMP_OFFSET) / _TEMP_SO) + _TEMP_OFFSET
+        # return ((temp - _TEMP_OFFSET) / _TEMP_SO) + _TEMP_OFFSET
+        return (temp / _TEMP_SO) +  _TEMP_OFFSET
 
     @property
     def whoami(self):

@@ -5,8 +5,12 @@ Config is loaded from a file kept by default in '/networks.json'
 Priority of networks is determined implicitly by order in array, first being the highest.
 It will go through the list of preferred networks, connecting to the ones it detects present.
 
+Default behaviour is to always start the webrepl after setup,
+and only start the access point if we can't connect to a known access point ourselves.
+
 Future scope is to use BSSID instead of SSID when micropython allows it,
 this would allow multiple access points with the same name, and we can select by signal strength.
+
 
 """
 
@@ -30,7 +34,7 @@ except ImportError:
     def fake_log(msg, *args):
         print("[?] No logger detected. (log dropped)")
     log = type("", (), {"debug": fake_log, "info": fake_log, "warning": fake_log, "error": fake_log,
-                            "critical": fake_log})()
+                            "critivcal": fake_log})()
 
 class WifiManager:
     _ap_start_policy = "never"
@@ -56,6 +60,10 @@ class WifiManager:
                 # if status != network.STAT_CONNECTING: <- do not care yet
                 cls.setup_network()
             await asyncio.sleep(10)  # Pause 5 seconds
+
+    @classmethod
+    def ifconfig(cls):
+        return cls.wlan().ifconfig()
 
     @classmethod
     def wlan(cls):
@@ -109,7 +117,7 @@ class WifiManager:
                     connection_data = {
                         "ssid": aNetwork["ssid"],
                         "bssid": aNetwork["bssid"],  # NB: One day we might allow collection by exact BSSID
-                        "password": aPreference["password"]}
+                        "password": aPreference["password"] }
                     candidates.append(connection_data)
 
         for new_connection in candidates:
@@ -129,8 +137,6 @@ class WifiManager:
             log.info("Enabling your access point...")
             cls.accesspoint().config(**cls.ap_config["config"])
         cls.accesspoint().active(cls.wants_accesspoint())  # It may be DEACTIVATED here
-
-        # may need to reload the config if access points trigger it
 
         # return the success status, which is ultimately if we connected to managed and not ad hoc wifi.
         return cls.wlan().isconnected()

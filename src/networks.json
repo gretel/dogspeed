@@ -2,8 +2,12 @@
     "schema": 2,
     "known_networks": [
         {
-            "ssid": "VPN-Access",
-            "password": "PouYenis_11_09_2021"
+            "ssid": "PlanetFall",
+            "password": "Larg-Hupti-Schwup=29381"
+        },
+                {
+            "ssid": "ArmyOfChina",
+            "password": "AsianSquare96"
         }
     ],
     "access_point": {
