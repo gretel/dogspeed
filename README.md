@@ -9,14 +9,39 @@ This is intended to control sound synthesis by physical entities moving through 
 # Hardware
 
  * [`Wemos D1 mini`](https://www.banggood.com/5pcs-D1-Mini-V3_0_0-WIFI-Internet-Of-Things-Development-Board-Based-ESP8266-4MB-p-1385321.html)
+  * [`M5StickC PLUS`](https://docs.m5stack.com/#/en/core/m5stickc_plus)
+
 
 ## Flash
 
-Due to the use of `uasyncio` version 3 `micropython` (not `pycopy` :tongue:) version `1.13` is required at least. At the time of this writing the [`daily builds for 2M or more of flash`](https://micropython.org/download/esp8266/) have been working fine.
+Due to the use of `uasyncio` version 3 `micropython` (not `pycopy` :tongue:) version `1.13` is required at least.
 
-```
+### `ESP8266`
+
+ At the time of this writing the [`daily builds for 2M or more of flash`](https://micropython.org/download/esp8266/) have been working fine:
+
+```shell
 esptool.py --port /dev/cu.usbserial-14310 --baud 1000000 erase_flash
 esptool.py --port /dev/cu.usbserial-14310 --baud 1000000 write_flash --flash_size=4MB -fm dio 0 esp8266-20201130-unstable-v1.13-194-gf7225d1c9.bin
+```
+
+### `M5StickC PLUS`
+
+ [`GENERIC` builds](https://micropython.org/download/esp32/) should flash well:
+
+```shell
+esptool.py -p /dev/cu.usbserial-29521504FD -b 115200 erase_flash
+esptool.py -p /dev/cu.usbserial-29521504FD -b 115200 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size detect --flash_freq 40m 0x1000 esp32-20210813-unstable-v1.16-201-g671f01230
+
+```
+
+## Format Flash
+
+```python
+import os
+os.umount('/')
+os.VfsLfs2.mkfs(bdev)
+os.mount(bdev, '/')
 ```
 
 ## Sensor
