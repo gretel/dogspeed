@@ -10,10 +10,14 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger('dogspeed')
 
-from machine import Pin
+from machine import Pin, PWM
 # onboard led
 red_led = Pin(10, Pin.OUT)
 red_led.value(0)
+
+# buzzer
+buz = PWM(Pin(2, Pin.OUT))
+buz.duty(0)
 
 import ujson
 # inhale json
@@ -44,8 +48,8 @@ except OSError as e:
 finally:
     log.info('machine uid {}'.format(MACHINE_UID))
 
-# store if not existing or different
-if(r['uid'] != MACHINE_UID):
+# store if nonexistant or different
+if(r == None or r['uid'] != MACHINE_UID):
     write_json(FILE_UID, {'uid': MACHINE_UID})
 
 # initiate sensor bus
@@ -69,12 +73,19 @@ red_led.value(1)
 
 import st7789
 import vga1_bold_16x16 as font
-spi = machine.SPI(2, baudrate=30000000, polarity=1, sck=machine.Pin(13), mosi=machine.Pin(15))
-display = st7789.ST7789(spi, 135, 240, reset=machine.Pin(18, machine.Pin.OUT), cs=machine.Pin(5, machine.Pin.OUT), dc=machine.Pin(23, machine.Pin.OUT))
-log.debug(display)
-display.init()
-display.fill(st7789.YELLOW)
-# enable backlight
+spi = machine.SPI(2,
+    baudrate=30000000, polarity=1,
+    sck=machine.Pin(13),
+    mosi=machine.Pin(15))
+lcd = st7789.ST7789(spi,
+    135, 240, 
+    reset=machine.Pin(18, machine.Pin.OUT),
+    cs=machine.Pin(5, machine.Pin.OUT),
+    dc=machine.Pin(23, machine.Pin.OUT))
+log.debug(lcd)
+lcd.init()
+lcd.fill(st7789.YELLOW)
+# lcd backlight
 axp.set_LD02(True)
 
 from mpu6886 import MPU6886, SF_M_S2, SF_DEG_S
@@ -86,9 +97,9 @@ log.debug(imu)
 from wifi_manager import WifiManager
 # https://github.com/mitchins/micropython-wifimanager#asynchronous-usage-event-loop
 log.info(WifiManager.start_managing())
-log.info('ifconfig {}'.format(WifiManager.ifconfig()))
+ifconfig = WifiManager.ifconfig()
 
-display.fill(st7789.GREEN)
+lcd.fill(st7789.GREEN)
 
 import uasyncio as asyncio
 from fusion_async import Fusion
@@ -100,7 +111,7 @@ async def read_coro():
 fuse = Fusion(read_coro)
 
 # necessary for long term stability
-async def mem_manage(): # 
+async def mem_manage():
     while True:
         # wait first
         await asyncio.sleep_ms(100)
@@ -109,12 +120,38 @@ async def mem_manage(): #
         # adjust the threshold for the meantime
         gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
 
+def notch_cond(val, hi=0, lo=0, ret_true=st7789.WHITE, ret_false=st7789.RED):
+    if((lo > 0 and lo >= val) or (hi > 0 and hi <= val)):
+        return ret_false
+    return ret_true
+
 async def display():
-    # template
-    fs = 'pitch: {:4.0f} roll: {:4.0f}'
     while True:
-        log.info(fs.format(fuse.pitch, fuse.roll))
-        # this not urgent
+        lcd.rotation(0)
+        lcd.text(font, 'dogspeed', 2, 0, st7789.BLACK, 0xAAAA)
+        lcd.rotation(1)
+        lcd.text(font, MACHINE_UID, 16, 0, st7789.MAGENTA)
+        lcd.text(font, ifconfig[0], 16, 16, st7789.WHITE)
+
+        v = axp.battery_voltage()
+        f = 'battery: {:2.2f}V'.format(v)
+        lcd.text(font, f, 16, 32, notch_cond(v, lo=3.3))
+
+        f = 'current: {:1.0f}mA'.format(axp.battery_current())
+        lcd.text(font, f, 16, 48, st7789.YELLOW)
+
+        f = ' charge: {:1.0f}mA'.format(axp.battery_charge_current())
+        lcd.text(font, f, 16, 64, st7789.YELLOW)
+
+        v = axp.temperature()
+        f = '   temp: {:1.0f}C'.format(v)
+        lcd.text(font, f, 16, 80, notch_cond(v, hi=45))
+
+        f = '  pitch: {:1.0f}'.format(fuse.pitch)
+        lcd.text(font, f, 16, 96, st7789.CYAN)
+
+        f = '   roll: {:1.0f}'.format(fuse.roll)
+        lcd.text(font, f, 16, 112, st7789.BLUE)
         await asyncio.sleep_ms(500)
 
 async def blinken():
@@ -195,6 +232,8 @@ async def main():
 gc.collect()
 # and give info for reference
 log.debug(micropython.mem_info())
+
+lcd.fill(st7789.BLACK)
 
 try:
     # tasks
