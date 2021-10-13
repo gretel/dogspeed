@@ -15,9 +15,15 @@ from machine import Pin, PWM
 red_led = Pin(10, Pin.OUT)
 red_led.value(0)
 
+import neopixel
+np = neopixel.NeoPixel(machine.Pin(32), 2)
+np[0] = (64,0,0)
+np[1] = (0,0,64)
+np.write()
+
 # buzzer
-buz = PWM(Pin(2, Pin.OUT))
-buz.duty(0)
+# buz = PWM(Pin(2, Pin.OUT))
+# buz.duty(0)
 
 import ujson
 # inhale json
@@ -96,7 +102,7 @@ log.debug(imu)
 # wireless networking
 from wifi_manager import WifiManager
 # https://github.com/mitchins/micropython-wifimanager#asynchronous-usage-event-loop
-log.info(WifiManager.start_managing())
+WifiManager.start_managing()
 ifconfig = WifiManager.ifconfig()
 
 lcd.fill(st7789.GREEN)
