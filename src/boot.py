@@ -1,4 +1,4 @@
-import micropython, gc, sys
+import micropython, gc
 
 # https://docs.micropython.org/en/latest/library/micropython.html#micropython.alloc_emergency_exception_buf
 micropython.alloc_emergency_exception_buf(100)

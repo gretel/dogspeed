@@ -1,274 +1,275 @@
-"""
-Driver for AXP192, as used in the M5StickC.
-
-As I was not able to find a non-chinese data sheet of the AXP192, the
-adresses and functions here are mostly copied from the Arduino library
-on https://github.com/m5stack/M5StickC/blob/master/src/AXP192.cpp.
-
-History:
-    2019-12-27 TW created
-
-"""
-
-
-AXP192_I2C_ADDRESS = 0x34
+# Python driver for the AXP192 Power Management IC.
+#
+# https://gist.github.com/ropg/7216ba90a9d7697114d4ba8aea7bee3c
+# 
+# Written in 2021 by Rop Gonggrijp.
+#
+# Some functionality inspired by C driver written by Mika Tuupola
+# (https://github.com/tuupola/axp192) and a fork of that maintained by
+# Brian Starkey (https://github.com/usedbytes/axp192)
+#
+# License: MIT
 
 
-class AXP192_Conf:
-    """Configuration of important AXP192 outputs"""
+from machine import I2C, Pin
 
-    def __init__(self, LD02=True, LD03=True, RTC=True, DCDC1=True, DCDC3=True):
-        self.LD02 = LD02
-        self.LD03 = LD03
-        self.RTC = RTC
-        self.DCDC1 = DCDC1
-        self.DCDC3 = DCDC3
+I2C_ADDRESS                = 0x34
 
-    def mask_0x12(self):
-        m = 0
-        if self.LD03:
-            m |= (1 << 3)
-        if self.LD02:
-            m |= (1 << 2)
-        if self.DCDC3:
-            m |= (1 << 1)
-        if self.DCDC1:
-            m |= (1 << 0)
-        return m
+# Power control registers 
+POWER_STATUS               = 0x00
+CHARGE_STATUS              = 0x01
+OTG_VBUS_STATUS            = 0x04
+DATA_BUFFER0               = 0x06
+DATA_BUFFER1               = 0x07
+DATA_BUFFER2               = 0x08
+DATA_BUFFER3               = 0x09
+DATA_BUFFER4               = 0x0a
+DATA_BUFFER5               = 0x0b
+# Output control: 2 EXTEN, 0 DCDC2 
+EXTEN_DCDC2_CONTROL        = 0x10
+# Power output control: 6 EXTEN, 4 DCDC2, 3 LDO3, 2 LDO2, 1 DCDC3, 0 DCDC1 
+DCDC13_LDO23_CONTROL       = 0x12
+DCDC2_VOLTAGE              = 0x23
+DCDC2_SLOPE                = 0x25
+DCDC1_VOLTAGE              = 0x26
+DCDC3_VOLTAGE              = 0x27
+# Output voltage control: 7-4 LDO2, 3-0 LDO3 
+LDO23_VOLTAGE              = 0x28
+VBUS_IPSOUT_CHANNEL        = 0x30
+SHUTDOWN_VOLTAGE           = 0x31
+SHUTDOWN_BATTERY_CHGLED_CONTROL   = 0x32
+CHARGE_CONTROL_1           = 0x33
+CHARGE_CONTROL_2           = 0x34
+BATTERY_CHARGE_CONTROL     = 0x35
+PEK                        = 0x36
+DCDC_FREQUENCY             = 0x37
+BATTERY_CHARGE_LOW_TEMP    = 0x38
+BATTERY_CHARGE_HIGH_TEMP   = 0x39
+APS_LOW_POWER1             = 0x3A
+APS_LOW_POWER2             = 0x3B
+BATTERY_DISCHARGE_LOW_TEMP    = 0x3c
+BATTERY_DISCHARGE_HIGH_TEMP   = 0x3d
+DCDC_MODE                  = 0x80
+ADC_ENABLE_1               = 0x82
+ADC_ENABLE_2               = 0x83
+ADC_RATE_TS_PIN            = 0x84
+GPIO30_INPUT_RANGE         = 0x85
+GPIO0_ADC_IRQ_RISING       = 0x86
+GPIO0_ADC_IRQ_FALLING      = 0x87
+TIMER_CONTROL              = 0x8a
+VBUS_MONITOR               = 0x8b
+TEMP_SHUTDOWN_CONTROL      = 0x8f
 
-    def set_LD02(self, status):
-        self.LD02 = status
+# GPIO control registers 
+GPIO0_CONTROL              = 0x90
+GPIO0_LDOIO0_VOLTAGE       = 0x91
+GPIO1_CONTROL              = 0x92
+GPIO2_CONTROL              = 0x93
+GPIO20_SIGNAL_STATUS       = 0x94
+GPIO40_FUNCTION_CONTROL    = 0x95
+GPIO40_SIGNAL_STATUS       = 0x96
+GPIO20_PULLDOWN_CONTROL    = 0x97
+PWM1_FREQUENCY             = 0x98
+PWM1_DUTY_CYCLE_1          = 0x99
+PWM1_DUTY_CYCLE_2          = 0x9a
+PWM2_FREQUENCY             = 0x9b
+PWM2_DUTY_CYCLE_1          = 0x9c
+PWM2_DUTY_CYCLE_2          = 0x9d
+N_RSTO_GPIO5_CONTROL       = 0x9e
 
+# Interrupt control registers 
+ENABLE_CONTROL_1           = 0x40
+ENABLE_CONTROL_2           = 0x41
+ENABLE_CONTROL_3           = 0x42
+ENABLE_CONTROL_4           = 0x43
+ENABLE_CONTROL_5           = 0x4a
+IRQ_STATUS_1               = 0x44
+IRQ_STATUS_2               = 0x45
+IRQ_STATUS_3               = 0x46
+IRQ_STATUS_4               = 0x47
+IRQ_STATUS_5               = 0x4d
+
+# ADC data registers 
+ACIN_VOLTAGE               = 0x56
+ACIN_CURRENT               = 0x58
+VBUS_VOLTAGE               = 0x5a
+VBUS_CURRENT               = 0x5c
+TEMP                       = 0x5e
+TS_INPUT                   = 0x62
+GPIO0_VOLTAGE              = 0x64
+GPIO1_VOLTAGE              = 0x66
+GPIO2_VOLTAGE              = 0x68
+GPIO3_VOLTAGE              = 0x6a
+BATTERY_POWER              = 0x70
+BATTERY_VOLTAGE            = 0x78
+CHARGE_CURRENT             = 0x7a
+DISCHARGE_CURRENT          = 0x7c
+APS_VOLTAGE                = 0x7e
+CHARGE_COULOMB             = 0xb0
+DISCHARGE_COULOMB          = 0xb4
+COULOMB_COUNTER_CONTROL    = 0xb8
+
+BIT_DCDC1_ENABLE           = 0b00000001
+BIT_DCDC2_ENABLE           = 0b00010000
+BIT_DCDC3_ENABLE           = 0b00000010
+BIT_LDO2_ENABLE            = 0b00000100
+BIT_LDO3_ENABLE            = 0b00001000
+BIT_EXTEN_ENABLE           = 0b01000000
+
+# These are not real registers, see read and write functions
+LDO2_VOLTAGE               = 0x0101
+LDO3_VOLTAGE               = 0x0102
 
 class AXP192:
-    """AXP192: Initialization and Interface.
 
-    Stolen from https://github.com/m5stack/M5StickC
-    """
+    def __init__(self, i2c, i2c_addr=I2C_ADDRESS):
+        self.i2c = i2c
+        self.i2c_addr = i2c_addr
 
-    def __init__(self, i2c_bus):
-        self.i2c = i2c_bus
-        self.conf = AXP192_Conf()
+    def read_byte(self, reg_addr):
+        tmp = self.i2c.readfrom_mem(self.i2c_addr, reg_addr, 1)[0]
+        # print("read_byte: 0x{:x} from 0x{:x}".format(tmp, reg_addr))
+        return tmp
 
-    def _write(self, addr, *values):
-        b = bytearray(1)
-        b[0] = values[0]
-        self.i2c.writeto_mem(AXP192_I2C_ADDRESS, addr, b)
+    def write_byte(self, reg_addr, data):
+        # print("write_byte: 0x{:x} to 0x{:x}".format(data, reg_addr))
+        self.i2c.writeto_mem(self.i2c_addr, reg_addr, bytes([data]))
 
-    def _read(self, addr, nbytes=1):
-        return self.i2c.readfrom_mem(AXP192_I2C_ADDRESS, addr, nbytes)
+    def twiddle(self, reg_addr, affects, value):
+        self.write_byte(reg_addr, (self.read_byte(reg_addr) & (affects ^ 0xff)) | (value & affects))
 
-    def _read_bits(self, addr, nbits):
-        """Read values from AXP192 and decode partial bytes"""
+    def write(self, reg_addr, data):
+        # print("write: {:x} with {}".format(reg_addr, data))
+        if reg_addr == DCDC1_VOLTAGE:
+            if data == 0:
+                self.twiddle(DCDC13_LDO23_CONTROL, BIT_DCDC1_ENABLE, 0)
+                return
+            if data < 0.7 or data > 3.5:
+                raise ValueError("Voltage out of range")
+            self.twiddle(reg_addr, 0b01111111, int((data - 0.7) / 0.025))
+            self.twiddle(DCDC13_LDO23_CONTROL, BIT_DCDC1_ENABLE, BIT_DCDC1_ENABLE)
+            return
+        elif reg_addr == DCDC2_VOLTAGE:
+            if data == 0:
+                self.twiddle(DCDC13_LDO23_CONTROL, BIT_DCDC2_ENABLE, 0)
+                return
+            if data < 0.7 or data > 2.275:
+                raise ValueError("Voltage out of range")
+            self.twiddle(reg_addr, 0b00111111, int((data - 0.7) / 0.025))
+            self.twiddle(DCDC13_LDO23_CONTROL, BIT_DCDC2_ENABLE, BIT_DCDC2_ENABLE)
+            return
+        if reg_addr == DCDC3_VOLTAGE:
+            if data == 0:
+                self.twiddle(DCDC13_LDO23_CONTROL, BIT_DCDC3_ENABLE, 0)
+                return
+            if data < 0.7 or data > 3.5:
+                raise ValueError("Voltage out of range")
+            self.twiddle(reg_addr, 0b01111111, int((data - 0.7) / 0.025))
+            self.twiddle(DCDC13_LDO23_CONTROL, BIT_DCDC3_ENABLE, BIT_DCDC3_ENABLE)
+            return
+        elif reg_addr == LDO2_VOLTAGE:
+            if data == 0:
+                self.twiddle(DCDC13_LDO23_CONTROL, BIT_LDO2_ENABLE, 0)
+                return
+            if data < 1.8 or data > 3.3:
+                raise ValueError("Voltage out of range")
+            val = int((data - 1.8) / 0.1)
+            self.twiddle(LDO23_VOLTAGE, 0xf0, val << 4)
+            self.twiddle(DCDC13_LDO23_CONTROL, BIT_LDO2_ENABLE, BIT_LDO2_ENABLE)
+            return
+        elif reg_addr == LDO3_VOLTAGE:
+            if data == 0:
+                self.twiddle(DCDC13_LDO23_CONTROL, BIT_LDO3_ENABLE, 0)
+                return
+            if data < 1.8 or data > 3.3:
+                raise ValueError("Voltage out of range")
+            val = int((data - 1.8) / 0.1)
+            self.twiddle(LDO23_VOLTAGE, 0x0f, val)
+            self.twiddle(DCDC13_LDO23_CONTROL, BIT_LDO3_ENABLE, BIT_LDO3_ENABLE)
+            return
 
-        nbytes = int(nbits / 8)
-        if (nbits % 8) != 0:
-            nbytes += 1
-
-        b = self._read(addr, nbytes)
-
-        # decoding partial bytes:
-        #   relevant bits of the partial bytes seem to be in the high bits
-        #   of the first byte.
-        #   C Source:
-        #       Data = ((buf[0] << 4) + buf[1])
-        ret = 0
-        # partial bytes
-        if (nbits % 8) == 0:
-            # MSB first, LSB last
-            for byte in b:
-                ret = (ret << 8) | byte
-        elif nbits == 12:
-            ret = (b[0] << 4) | b[1]
-        elif nbits == 13:
-            ret = (b[0] << 5) | b[1]
+        if type(data) != "bytes":
+            self.write_byte(reg_addr, data)
         else:
-            raise Exception("invalid number of bits")
+            self.i2c.writeto_mem(self.i2c_addr, reg_addr, data)
 
-        return ret
+    def read(self, reg_addr, length=1):
 
-    def setup(self):
-        """Initialize AXP192 with defaults for the M5StickC
+        if length != 1:
+            return self.i2c.readfrom_mem(self.i2c_addr, reg_addr, length)
 
-        Arduino call: begin()
-        """
+        sensitivity = 1.0
+        offset = 0.0
 
-        # Set LDO2 & LDO3(TFT_LED & TFT) 3.0V
-        self._write(0x28, 0xcc)
+        if reg_addr == ACIN_VOLTAGE or reg_addr == VBUS_VOLTAGE:
+            # 1.7mV per LSB 
+            sensitivity = 1.7 / 1000
+        elif reg_addr == ACIN_CURRENT:
+            # 0.625mA per LSB 
+            sensitivity = 0.625 / 1000
+        elif reg_addr == VBUS_CURRENT:
+            # 0.375mA per LSB 
+            sensitivity = 0.375 / 1000
+        elif reg_addr == TEMP:
+            # 0.1C per LSB, 0x00 = -144.7C 
+            sensitivity = 0.1
+            offset = -144.7
+        elif reg_addr == TS_INPUT:
+            # 0.8mV per LSB 
+            sensitivity = 0.8 / 1000
+        elif reg_addr == BATTERY_POWER:
+            # 1.1mV * 0.5mA per LSB 
+            return int.from_bytes(self.read(BATTERY_POWER, 3), "big") * (1.1 * 0.5 / 1000)
+        elif reg_addr == BATTERY_VOLTAGE:
+            # 1.1mV per LSB 
+            sensitivity = 1.1 / 1000
+        elif reg_addr == CHARGE_CURRENT or reg_addr == DISCHARGE_CURRENT:
+            # 0.5mV per LSB 
+            sensitivity = 0.5 / 1000
+        elif reg_addr == APS_VOLTAGE:
+            # 1.4mV per LSB 
+            sensitivity = 1.4 / 1000
+        elif reg_addr == CHARGE_COULOMB or reg_addr == DISCHARGE_COULOMB:
+            return int.from_bytes(self.read(reg_addr, 4), "big")
+        elif reg_addr == DCDC1_VOLTAGE:
+            if self.read_byte(DCDC13_LDO23_CONTROL) & BIT_DCDC1_ENABLE == 0:
+                return 0
+            return (self.read_byte(reg_addr) & 0b01111111) * 0.25 + 0.7
+        elif reg_addr == DCDC2_VOLTAGE:
+            if self.read_byte(DCDC13_LDO23_CONTROL) & BIT_DCDC2_ENABLE == 0:
+                return 0
+            return (self.read_byte(reg_addr) & 0b00111111) * 0.25 + 0.7
+        elif reg_addr == DCDC3_VOLTAGE:
+            if self.read_byte(DCDC13_LDO23_CONTROL) & BIT_DCDC3_ENABLE == 0:
+                return 0
+            return (self.read_byte(reg_addr) & 0b01111111) * 0.25 + 0.7
+        elif reg_addr == LDO2_VOLTAGE:
+            if self.read_byte(DCDC13_LDO23_CONTROL) & BIT_LDO2_ENABLE == 0:
+                return 0
+            return ((self.read_byte(LDO23_VOLTAGE) & 0xf0) >> 4) * 0.1 + 1.8
+        elif reg_addr == LDO3_VOLTAGE:
+            if self.read_byte(DCDC13_LDO23_CONTROL) & BIT_LDO3_ENABLE == 0:
+                return 0
+            return ((self.read_byte(LDO23_VOLTAGE) & 0x0f)) * 0.1 + 1.8
+        # any values not listed will just read a single byte
+        else:
+            return self.read_byte(reg_addr)
+        # handle cases above that did not end in return
+        tmp = self.i2c.readfrom_mem(self.i2c_addr, reg_addr, 2)
+        return (((tmp[0] << 4) + tmp[1]) * sensitivity) + offset
 
-        # Set ADC sample rate to 200hz
-        self._write(0x84, int("0b11110010"))
+    def coulomb_counter(self):
+        # CmAh = 65536 * 0.5mA *（coin - cout) / 3600 / ADC sample rate
+        return 32768 * (self.read(CHARGE_COULOMB) - self.read(DISCHARGE_COULOMB)) / 3600 / 25
 
-        # Set ADC to All Enable
-        self._write(0x82, 0xff)
+    def coulomb_counter_enable(self):
+        self.write(COULOMB_COUNTER_CONTROL, 0b10000000)
 
-        # Bat charge voltage to 4.2, Current 100MA
-        self._write(0x33, 0xc0)
+    def coulomb_counter_disable(self):
+        self.write(COULOMB_COUNTER_CONTROL, 0b00000000)
 
-        # Depending on configuration enable LDO2, LDO3, DCDC1, DCDC3.
-        self._set_power_0x12()
+    def coulomb_counter_suspend(self):
+        self.write(COULOMB_COUNTER_CONTROL, 0b11000000)
 
-        # 128ms power on, 4s power off
-        self._write(0x36, 0x0C)
-
-        if self.conf.RTC:  # RTC enabled
-            # Set RTC voltage to 3.3V
-            self._write(0x91, 0xF0)
-
-            # Set GPIO0 to LDO
-            self._write(0x90, 0x02)
-
-        # Disable vbus hold limit
-        self._write(0x30, 0x80)
-
-        # Set temperature protection
-        self._write(0x39, 0xfc)
-
-        # Enable RTC BAT charge
-        tmp = 0x7f
-        if self.conf.RTC:
-            tmp = 0xff
-        self._write(0x35, 0xa2 & tmp)
-
-        # Enable bat detection
-        self._write(0x32, 0x46)
-
-    # Depending on configuration enable LDO2, LDO3, DCDC1, DCDC3.
-    def _set_power_0x12(self):
-        b = (self._read_bits(0x12, 8) & 0xef) | 0x4D
-        b = (b & 0xf0) | self.conf.mask_0x12()
-        self._write(0x12, b)
-
-    def set_LD02(self, status):
-        """Turn LD02 output on or off.
-
-        On M5StickC, this is connected to the LCD backlight.
-
-        Arduino call: SetLDO2()
-        """
-
-        self.conf.LD02 = status
-        self._set_power_0x12()
-
-    def button(self):
-        """Return status of the M5StickC power button
-
-        Arduino call: GetBtnPress()
-        """
-        st = self._read_bits(0x46, 8)
-        if st:
-            self._write(0x46, 0x03)
-        return st
-
-    def battery_voltage(self):
-        """Return battery voltage
-
-        Arduino call: GetBatVoltage()
-        """
-        ADCLSB = 1.1 / 1000.0
-        return ADCLSB * self._read_bits(0x78, 12)
-
-    def battery_current(self):
-        """Return battery current
-
-        Arduino call: GetBatCurrent()
-        """
-        ADCLSB = 0.5
-        a_in = self._read_bits(0x7a, 13)    # current to battery ?
-        a_out = self._read_bits(0x7c, 13)   # current from battery ?
-        return ADCLSB * (a_in - a_out)
-
-    # def input_voltage(self):
-    #     """Return input voltage.
-
-    #     This returns 0V always (?)
-
-    #     Arduino call: GetVinVoltage()
-    #     """
-    #     ADCLSB = 1.7 / 1000.0
-    #     return ADCLSB * self._read_bits(0x56, 12)
-
-    # def input_current(self):
-    #     """Return input current.
-
-    #     This returns 0A always (?)
-
-    #     Arduino call: GetVinCurrent()
-    #     """
-    #     ADCLSB = 0.625
-    #     return ADCLSB * self._read_bits(0x58, 12)
-
-    def bus_voltage(self):
-        """Return bus voltage.
-
-        Arduino call: GetVBusVoltage()
-        """
-        ADCLSB = 1.7 / 1000.0
-        return ADCLSB * self._read_bits(0x5a, 12)
-
-    def bus_current(self):
-        """Return bus current.
-
-        Not sure if this is correct, as my M5StickC reports only 30mA here.
-
-        Arduino call: GetVBusCurrent()
-        """
-        ADCLSB = 0.375
-        return ADCLSB * self._read_bits(0x5c, 12)
-
-    def temperature(self):
-        """Return AXP192 temperature in °C.
-
-        Arduino call: GetTempInAXP192()
-        """
-        ADCLSB = 0.1
-        OFFSET_DEG_C = -144.7
-        return OFFSET_DEG_C + ADCLSB * self._read_bits(0x5e, 12)
-
-    def battery_power(self):
-        """Return information about battery state(?)
-
-        Arduino call: GetBatPower()
-        """
-        VoltageLSB = 1.1
-        CurrentLCS = 0.5
-        return VoltageLSB * CurrentLCS * self._read_bits(0x70, 24)
-
-    def battery_charge_current(self):
-        """Return current flowing into the battery.
-
-        Arduino call: GetBatChargeCurrent()
-        """
-        ADCLSB = 0.5
-        # Why do we read 12 bits here and 13 bits in battery_current()
-        # above ?
-        return ADCLSB * self._read_bits(0x7a, 12)
-
-    def aps_voltage(self):
-        """Return APS voltage. No Idea what this is.
-
-        Arduino call: GetAPSVoltage()
-        """
-        ADCLSB = 1.4 / 1000.0
-        return ADCLSB * self._read_bits(0x7e, 12)
-
-    def warning_level(self):
-        """Most likely warns about battery low (?)
-
-        Arduino call: GetWarningLevel()
-        """
-        if self._read_bits(0x47, 8) & 0x01:
-            return True
-        return False
-
-    def set_sleep(self):
-        """Turn off most power outputs.
-
-        Arduino call: SetSleep()
-        """
-        buf = self._read_bits(0x31, 8)
-        buf = (1 << 3) | buf
-        self._write(0x31, buf)       # no idea what this does
-        self._write(0x90, 0x00)      # GPIO 0 not longer on LD0
-        self._write(0x12, 0x09)
-        self._write(0x12, 0x00)      # disable LD02, LD03, DCDC1, DCDC3
+    def coulomb_counter_clear(self):
+        self.write(COULOMB_COUNTER_CONTROL, 0b10100000)
