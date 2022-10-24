@@ -1,44 +1,27 @@
 import log
 
 # in the beginning there is the declaration of a protocol version
-VERSION = const(0x03)
+VERSION = const(0x04)
 
 # configuration files to load at runtime
+FILE_MAG_CAL = '/mag_cal.json'
 FILE_STREAM_CFG = "/stream.json"
 FILE_UID = "/uid.json"
 
 import machine
 from machine import Pin, PWM
 
-# onboard led
-red_led = Pin(10, Pin.OUT)
-red_led.value(0)
-
 import neopixel
 import fancyled as fancy
 
-np = neopixel.NeoPixel(machine.Pin(32), 2)
+board_led = neopixel.NeoPixel(machine.Pin(2), 1)
+board_led[0] = (0, 8, 0)
+board_led.write()
+
+np = neopixel.NeoPixel(machine.Pin(10), 2)
 np[0] = (8, 0, 0)
 np[1] = (8, 0, 0)
 np.write()
-
-button = Pin(37, Pin.IN, Pin.PULL_UP)
-pressed = False
-
-def press_button(o):
-    print(o)
-    pressed = True
-
-
-button.irq(
-    trigger=Pin.IRQ_FALLING,
-    handler=press_button,
-    wake=machine.SLEEP | machine.DEEPSLEEP
-)
-
-# buzzer
-buz = PWM(Pin(2, Pin.OUT), freq=440, duty=512)
-buz.init()
 
 import ujson
 
@@ -50,14 +33,12 @@ def read_json(filename):
         f.close()
         return j
 
-
 # exhale json
 def write_json(filename, j):
     log.info("json", "writing {}".format(filename))
     with open(filename, "w") as f:
         ujson.dump(j, f)
         f.close()
-
 
 # identify ourselves uniquely
 import ubinascii
@@ -79,62 +60,43 @@ if r == None or r["uid"] != MACHINE_UID:
 
 # initiate sensor bus
 from machine import SoftI2C
-
 # frequency high, updates lots
-i2c = SoftI2C(scl=Pin(22), sda=Pin(21), freq=400000)
-log.debug("setup", i2c)
+i2c = SoftI2C(scl=Pin(3), sda=Pin(4), freq=400000)
+log.debug('i2c', i2c)
 
-# try:
-#     del sys.modules["axp192"]
-# except KeyError:
-#     pass
+# defaults of the magnetometer calibration data
+offset=(0, 0, 0)
+scale=(1, 1, 1)
 
-import axp192
-axp = axp192.AXP192(i2c)
+try:
+    # read the file hoping for data
+    j = read_json(FILE_MAG_CAL)
+    # override defaults
+    offset=j['offset']
+    scale=j['scale']
+except Exception as e:
+    # whatever failed above - let's go with the defaults
+    log.warning(e, 'unable to parse {}, using defaults'.format(FILE_MAG_CAL))
+finally:
+    log.info('imu', 'magnetometer calibration offset: {}, scale: {}'.format(offset, scale))
 
-# disable backlight
-axp.write(axp192.LDO2_VOLTAGE, 0)
-
-# turn led off
-red_led.value(1)
-
-import st7789
-import vga1_bold_16x16 as font
-
-spi = machine.SPI(
-    2, baudrate=30000000, polarity=1, sck=machine.Pin(13), mosi=machine.Pin(15)
+# imu
+from mpu9250 import MPU9250
+dummy = MPU9250(i2c) # this opens the "bybass" to access to the AK8963 directly
+from ak8963 import AK8963
+# use bypass to pass calibration data
+ak8963 = AK8963(
+    i2c,
+    offset=offset,
+    scale=scale
 )
-
-lcd = st7789.ST7789(
-    spi,
-    135,
-    240,
-    reset=machine.Pin(18, machine.Pin.OUT),
-    cs=machine.Pin(5, machine.Pin.OUT),
-    dc=machine.Pin(23, machine.Pin.OUT),
-)
-log.debug("lcd", lcd)
-lcd.init()
-lcd.fill(st7789.YELLOW)
-
-# enable backlight
-axp.write(axp192.LDO2_VOLTAGE, 2.8)
-
-#from mpu6886 import MPU6886, SF_M_S2, SF_DEG_S
-from mpu6886 import MPU6886
-
-imu = MPU6886(i2c)
-# meters per second, degrees per second
-#imu = MPU6886(i2c, accel_sf=SF_M_S2, gyro_sf=SF_DEG_S)
-log.debug("imu", imu)
-imu_calib = imu.calibrate()
-log.info("imu_calib", imu_calib)
+# finally initialize inertial measurement unit
+imu = MPU9250(i2c, ak8963=ak8963)
+log.debug('imu', imu)
 
 import filters
 maf = filters.MovingAverageFilter(14)
 maf2 = filters.MovingAverageFilter(6)
-
-buz.deinit()
 
 # wireless networking
 from wifi_manager import WifiManager
@@ -143,8 +105,6 @@ from wifi_manager import WifiManager
 WifiManager.start_managing()
 ifconfig = WifiManager.ifconfig()
 
-lcd.fill(st7789.GREEN)
-
 import uasyncio as asyncio
 from fusion_async import Fusion
 
@@ -152,7 +112,7 @@ async def read_coro():
     # TODO: validate sleepy time
     await asyncio.sleep_ms(50)
     # go with what is set right now
-    return imu.acceleration, imu.gyro
+    return imu.acceleration, imu.gyro, imu.magnetic
 
 # necessary for long term stability
 async def mem_manage():
@@ -171,44 +131,12 @@ def notch_cond(val, hi=0, lo=0, ret_true=st7789.WHITE, ret_false=st7789.RED):
     return ret_true
 
 
-async def display():
-    while True:
-        lcd.rotation(0)
-        lcd.text(font, "dogspeed", 2, 0, st7789.BLACK, 0xAAAA)
-        lcd.rotation(1)
-        lcd.text(font, MACHINE_UID, 16, 0, st7789.MAGENTA)
-        lcd.text(font, ifconfig[0], 16, 16, st7789.WHITE)
-
-        v = axp.read(axp192.BATTERY_VOLTAGE)
-        f = "battery: {:2.2f}V".format(v)
-        lcd.text(font, f, 16, 32, notch_cond(v, lo=3.3))
-
-        f = "current: {:1.0f}mA".format(axp.read(axp192.DISCHARGE_CURRENT))
-        lcd.text(font, f, 16, 48, st7789.YELLOW)
-
-        f = " charge: {:1.0f}mA".format(axp.read(axp192.CHARGE_CURRENT))
-        lcd.text(font, f, 16, 64, st7789.YELLOW)
-
-        v = axp.read(axp192.TEMP)
-        f = "   temp: {:1.0f}C".format(v)
-        lcd.text(font, f, 16, 80, notch_cond(v, hi=45))
-
-        lcd.text(font, "                ", 16, 96, st7789.CYAN)
-        f = "  pitch: {:1.0f}".format(fuse.pitch)
-        lcd.text(font, f, 16, 96, st7789.CYAN)
-
-        f = "   roll: {:1.0f}".format(fuse.roll)
-        lcd.text(font, f, 16, 112, st7789.BLUE)
-
-        await asyncio.sleep_ms(500)
-
-
 async def blinken():
     while True:
-        red_led.value(1)
+        board_led.value(1)
         # at 100ms it looks kinda good
         await asyncio.sleep_ms(250)
-        red_led.value(0)
+        board_led.value(0)
 
 
 async def mixer():
@@ -309,14 +237,6 @@ async def transmit():
         try:
             # "header"
             buf = ustruct.pack("12sHI", MACHINE_UID, VERSION, utime.ticks_us())
-            # "machine"
-            buf += ustruct.pack(
-                "4f",
-                axp.read(axp192.BATTERY_VOLTAGE),
-                axp.read(axp192.DISCHARGE_CURRENT),
-                axp.read(axp192.CHARGE_CURRENT),
-                axp.read(axp192.TEMP),
-            )
             # "payload"
             buf += ustruct.pack(
                 "8f",
@@ -350,7 +270,6 @@ async def switches():
 
 async def main():
     await fuse.start()
-    await display()
 
 fuse = Fusion(read_coro)
 
@@ -359,13 +278,10 @@ gc.collect()
 # and give info for reference
 log.debug("gc", micropython.mem_info())
 
-lcd.fill(st7789.BLACK)
-
 try:
     # tasks
     asyncio.create_task(blinken())
     asyncio.create_task(switches())
-    asyncio.create_task(display())
     asyncio.create_task(mixer())
     # TODO: check
     if(WifiManager.wlan().status() == 1010):
