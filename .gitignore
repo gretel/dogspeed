@@ -1,4 +1,4 @@
 *.mpy
 *lock
 .envrc
-networks.json
+**/networks.json
