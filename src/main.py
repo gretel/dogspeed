@@ -73,6 +73,7 @@ async def eb_long(shared):
         log.debug('btn', 'long')
         shared.save ^= 1
 
+
 async def eb_double(shared):
     while True:
         button.double.clear()
@@ -229,41 +230,52 @@ async def task_led_ext(shared):
 async def task_led_int(shared):
     maf = filters.MovingAverageFilter(4)
 
+    bright = 0.9
+    side = 0
+    sleep_time = 100
+    white = 50
+
     while True:
         if(not shared.flash):
             sleep_time = 500
+
+            # force off
+            led_int[0] = (0,0,0,0)
+            led_int[1] = (0,0,0,0)
+            led_int.write()
         else:
+            # if(shared.save):
+            #     bright = 0.4
+            # else:
+            #     bright = 0.9
+
             axis_sum = 0
-            white = 50
-            sleep_time = 100
-
-            if(shared.save):
-                bright = 0.4
-            else:
-                bright = 0.9
-
             for a in imu.getRotation():
                 axis_sum += abs(a)
 
             avg = maf.update(axis_sum)
 
-            if(avg < 5000):
-                sleep_time = 700
+            if(avg < 4900):
+                sleep_time = 330
 
-                color = fancy.gamma_adjust(fancy.CRGB(1.0, 1.0, 1.0), brightness=bright)
-                color_packed = color.pack()
-                led_int[0] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff, white)
-
-                color = fancy.gamma_adjust(fancy.CRGB(1.0, 1.0, 1.0), brightness=bright)
-                color_packed = color.pack()
-                led_int[1] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff, white)
+                if(side):
+                    color = fancy.gamma_adjust(fancy.CRGB(1.0, 1.0, 1.0), brightness=bright)
+                    color_packed = color.pack()
+                    led_int[0] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff, white)
+                else:
+                    color = fancy.gamma_adjust(fancy.CRGB(1.0, 1.0, 1.0), brightness=bright)
+                    color_packed = color.pack()
+                    led_int[1] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff, white)
 
                 led_int.write()
                 await asyncio.sleep_ms(20)
 
-                led_int[0] = led_int[1] = (0,0,0,0)
+                led_int[0] = (0,0,0,0)
+                led_int[1] = (0,0,0,0)
                 led_int.write()
 
+        # toggle
+        side ^= 1
         await asyncio.sleep_ms(sleep_time)
 
 
@@ -351,7 +363,7 @@ mixer_palette.append([
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.2, 0.7, 0.5),
+    fancy.CRGB(0.0, 0.7, 0.7),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
@@ -367,7 +379,7 @@ mixer_palette.append([
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.2, 0.7, 0.5),
+    fancy.CRGB(0.0, 0.7, 0.7),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
