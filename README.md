@@ -27,11 +27,21 @@ esptool.py --port /dev/cu.usbserial-14310 --baud 1000000 write_flash --flash_siz
 
 ### `M5StickC PLUS`
 
- [`GENERIC` builds](https://micropython.org/download/esp32/) should flash well:
+ [`GENERIC` builds](https://micropython.org/download/esp32/) should flash fine:
 
 ```shell
 esptool.py -p /dev/cu.usbserial-29521504FD -b 115200 erase_flash
 esptool.py -p /dev/cu.usbserial-29521504FD -b 115200 --before default_reset --after hard_reset write_flash --flash_mode dio --flash_size detect --flash_freq 40m 0x1000 esp32-20210813-unstable-v1.16-201-g671f01230
+
+```
+
+### `M5 Atom Lite`
+
+[`GENERIC` builds](https://micropython.org/download/esp32/) as well:
+
+```shell
+esptool.py -p /dev/ttyUSB0 -b 115200 erase_flash
+esptool.py --chip esp32 --port /dev/ttyUSB0 write_flash -z 0x1000 firmware.bin
 
 ```
 
@@ -42,6 +52,14 @@ import os
 os.umount('/')
 os.VfsLfs2.mkfs(bdev)
 os.mount(bdev, '/')
+```
+
+## Copy
+
+```shell
+mpr -d /dev/cu.usbserial-1552E605F3 put main.py boot.py networks.json /
+mpr -d /dev/tty.usbserial-1552E605F3 mkdir /lib
+mpr -d /dev/tty.usbserial-1552E605F3 put lib/*.py /lib
 ```
 
 ## Sensor

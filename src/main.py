@@ -1,44 +1,92 @@
 import log
+from machine import ADC, Pin, SoftI2C
+import neopixel
+import ujson
+import ubinascii
+import fancyled as fancy
+from BMI160 import BMI160_I2C
+import filters
+from wifi_manager import WifiManager
+import uasyncio as asyncio
+from primitives import EButton
+import aiorepl
+# from time import sleep_ms
+# from fusion_async import Fusion
+
+
+class Shared:
+    def __init__(self):
+        self.vbat = 0
+        self.palette_idx = 0
+        self.flash = 1
+        self.save = 0
+
 
 # in the beginning there is the declaration of a protocol version
-VERSION = const(0x04)
-NUM_LEDS = const(3)
+VERSION = const(0x05)
+
+NUM_LEDS_INT = const(2)
+NUM_LEDS_EXT = const(44)
 
 # configuration files to load at runtime
-#FILE_MAG_CAL = '/mag_cal.json'
-FILE_STREAM_CFG = "/stream.json"
 FILE_UID = "/uid.json"
 
-import machine
-from machine import Pin, PWM
+led_board = neopixel.NeoPixel(machine.Pin(27, Pin.OUT), 1)  # GPIO27
+led_board[0] = (50, 0, 50, 0)
+led_board.write()
 
-import neopixel
-import fancyled as fancy
+led_int = neopixel.NeoPixel(machine.Pin(22), NUM_LEDS_INT, bpp=4)  # GPIO22
+led_int[0] = (0, 50, 0, 0)
+led_int[1] = (50, 0, 0, 0)
+led_int.write()
 
-board_led = neopixel.NeoPixel(machine.Pin(2), 1)
-board_led[0] = (0, 4, 0)
-board_led.write()
+led_ext = neopixel.NeoPixel(machine.Pin(32), NUM_LEDS_EXT, bpp=3)  # GPIO32
 
-np = neopixel.NeoPixel(machine.Pin(1), NUM_LEDS, bpp=4)
-np[0] = (8, 0, 0, 0)
-np[1] = (0, 8, 0, 0)
-np[2] = (0, 0, 8, 0)
-np.write()
+vbat_pin = Pin(33, Pin.IN)  # GPIO33
+vbat_adc = ADC(vbat_pin)
+vbat_adc.atten(ADC.ATTN_11DB)  # 3.3V
 
-button = Pin(9, Pin.IN, Pin.PULL_UP)
-pressed = False
+infra_pin = Pin(12, Pin.IN)  # GPIO12
 
-def press_button(o):
-    print(o)
-    pressed = True
+button_pin = Pin(39, Pin.IN, Pin.PULL_DOWN)  # GPIO39
+button = EButton(button_pin, sense=1, suppress=1)
+button.double_click_ms = 1000
 
-button.irq(
-    trigger=Pin.IRQ_FALLING,
-    handler=press_button,
-    wake=machine.SLEEP | machine.DEEPSLEEP
-)
 
-import ujson
+async def eb_press(shared):
+    while True:
+        button.press.clear()
+        await button.press.wait()
+        log.debug('btn', 'press')
+        if(shared.palette_idx == len(mixer_palette) - 1):
+            shared.palette_idx = 0
+        else:
+            shared.palette_idx += 1
+        
+        log.info('btn', 'palette: {}'.format(shared.palette_idx))
+
+
+async def eb_long(shared):
+    while True:
+        button.long.clear()
+        await button.long.wait()
+        log.debug('btn', 'long')
+        shared.save ^= 1
+
+async def eb_double(shared):
+    while True:
+        button.double.clear()
+        await button.double.wait()
+        log.debug('btn', 'double')
+        shared.flash ^= 1
+
+
+async def eb_release(shared):
+    while True:
+        button.release.clear()
+        await button.release.wait()
+        log.debug('btn', 'release')
+
 
 # inhale json
 def read_json(filename):
@@ -48,6 +96,7 @@ def read_json(filename):
         f.close()
         return j
 
+
 # exhale json
 def write_json(filename, j):
     log.info("json", "writing {}".format(filename))
@@ -55,10 +104,8 @@ def write_json(filename, j):
         ujson.dump(j, f)
         f.close()
 
-# identify ourselves uniquely
-import ubinascii
 
-# unique client id
+# identify ourselves uniquely
 MACHINE_UID = ubinascii.hexlify(machine.unique_id()).decode("utf-8")
 
 try:
@@ -69,240 +116,334 @@ except OSError as e:
 finally:
     log.info("uid", MACHINE_UID)
 
-# store if nonexistant or different
-if r == None or r["uid"] != MACHINE_UID:
+# store if nonexistent or different
+if r is None or r["uid"] != MACHINE_UID:
     write_json(FILE_UID, {"uid": MACHINE_UID})
 
-# initiate sensor bus
-from machine import SoftI2C
+
 # frequency high, updates lots
-i2c = SoftI2C(scl=Pin(7), sda=Pin(6), freq=400000)
+i2c = SoftI2C(scl=Pin(21), sda=Pin(25), freq=400000)  # SCL: GPIO21, SDA: GPIO25
+# print(i2c.scan())
 log.debug('i2c', i2c)
 
-# # defaults of the magnetometer calibration data
-# offset=(0, 0, 0)
-# scale=(1, 1, 1)
-
-# try:
-#     # read the file hoping for data
-#     j = read_json(FILE_MAG_CAL)
-#     # override defaults
-#     offset=j['offset']
-#     scale=j['scale']
-# except Exception as e:
-#     # whatever failed above - let's go with the defaults
-#     log.warning(e, 'unable to parse {}, using defaults'.format(FILE_MAG_CAL))
-# finally:
-#     log.info('imu', 'magnetometer calibration offset: {}, scale: {}'.format(offset, scale))
 
 # imu
-from imu import MPU6050
-dummy = MPU6050(i2c) # this opens the "bybass" to access to the AK8963 directly
-
-# finally initialize inertial measurement unit
-imu = MPU6050(i2c)
+imu = BMI160_I2C(i2c)
 log.debug('imu', imu)
 
-import filters
-maf = filters.MovingAverageFilter(14)
-maf2 = filters.MovingAverageFilter(6)
 
-# wireless networking
-from wifi_manager import WifiManager
-
-# https://github.com/mitchins/micropython-wifimanager#asynchronous-usage-event-loop
-WifiManager.start_managing()
-ifconfig = WifiManager.ifconfig()
-
-import uasyncio as asyncio
-import aiorepl
-
-
-from fusion_async import Fusion
-
-
-async def read_coro():
-    # TODO: validate sleepy time
-    await asyncio.sleep_ms(50)
-    # go with what is set right now
-    return imu.accel, imu.gyro
-
-
-# necessary for long term stability
-async def mem_manage():
+async def task_vbat(shared):
     while True:
-        # wait first
-        await asyncio.sleep_ms(1000)
-        # take the trash down now
-        gc.collect()
-        # adjust the threshold for the meantime
-        gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
+        # Read ADC and convert to voltage
+        val = vbat_adc.read()
+        # val = val * (3.3 / 4095)
+        val = val * 3 * 1400 / 4095 /1000
+        shared.vbat = val
+        log.debug('vbat', '%sV', round(val, 2)) # Keep only 2 digits
+
+        await asyncio.sleep_ms(5000)
 
 
-async def blinken():
+async def task_blink(shared):
     while True:
-        board_led[0] = (0, 0, 0)
-        board_led.write()
-        # at 100ms it looks kinda good
+        led_board[0] = (0, 0, 10)
+        led_board.write()
+        await asyncio.sleep_ms(10)
+        led_board[0] = (0, 0, 0)
+        led_board.write()
         await asyncio.sleep_ms(500)
-        board_led[0] = (0, 8, 0)
-        board_led.write()
 
 
-async def mixer():
-    #mixer_offset = 0
-    mixer_palette = [
-        fancy.CRGB(1.0, 0.0, 0.0),  # Red
-        fancy.CRGB(0.5, 0.5, 0.0),  # Yellow
-        fancy.CRGB(0.0, 1.0, 0.0),  # Green
-        fancy.CRGB(0.0, 0.5, 0.5),  # Cyan
-        fancy.CRGB(0.0, 0.0, 1.0),  # Blue
-        fancy.CRGB(0.5, 0.0, 0.5),  # Magenta
-        fancy.CRGB(1.0, 0.0, 1.0),
-        fancy.CRGB(1.0, 1.0, 0.0),
-        fancy.CRGB(0.0, 1.0, 1.0),
-        fancy.CRGB(0.5, 0.0, 0.0),
-        fancy.CRGB(0.0, 0.5, 0.0),
-        fancy.CRGB(0.0, 0.0, 0.5),
-        fancy.CRGB(0.0, 0.0, 0.0),
-        fancy.CRGB(0.3, 0.3, 0.3),
-    ]
-
-    while True:
-        gyro_sum = 0
-        for g in imu.gyro.xyz:
-            gyro_sum += abs(g)
-
-        avg2 = maf2.update(gyro_sum)
-        if(avg2 > 5.0):
-            print('!avg2', avg2)
-        else:
-            print(' avg2', avg2)
-        
-        avg = maf.update(gyro_sum)
-        if(avg > 1.5):
-            print('!avg ', avg)
-        else:
-            print(' avg ', avg)
-
-        for i in range(NUM_LEDS):
-            #color = fancy.palette_lookup(mixer_palette, mixer_offset + i / 2)
-            color = fancy.palette_lookup(mixer_palette, i)
-            color = fancy.gamma_adjust(color, brightness=0.8)
-            np[i] = (2,2,0,0)
-            #np[i] = color.pack(fancy.gamma_adjust(i / 2))
-            np.write()
-            #mixer_offset += 0.003  # spin speed
-        await asyncio.sleep_ms(50)
-
-# # defaults for socket configuration (target host)
-# host = "192.168.4.2"
-# port = 2323
-# try:
-#     j = read_json(FILE_STREAM_CFG)
-#     # override defaults with what we got
-#     host = j["host"]
-#     port = j["port"]
-# except Exception as e:
-#     # whatever failed above - let's go with the defaults
-#     log.warning(
-#         "setup", "unable to parse {}, using defaults".format(FILE_STREAM_CFG)
-#     )
-
-
-# import usocket
-# import utime
-# import ustruct
-
-# async def transmit():
-#     # unreliable datagram protocol ("simplex")
-#     sock = usocket.socket(usocket.AF_INET, usocket.SOCK_DGRAM)
-#     # reuse address/port combo
-#     sock.setsockopt(usocket.SOL_SOCKET, usocket.SO_REUSEADDR, 1)
-#     sock.setblocking(0)
-#     # bind socket to remote port
-#     sock.bind(("", port))
-#     # ok, log
-#     log.info("tx", "streaming to {}:{}".format(host, port))
-
-#     # this should not get called using udp (no disconnections) but let's have it anyway
-#     def close():
-#         # byebye
-#         sock.close()
-#         log.error("tx", "socket closed")
-
-#     try:
-#         # lookup ipaddress
-#         serv = usocket.getaddrinfo(host, port)[0][-1]
-#         # open socket
-#         sock.connect(serv)
-#     except OSError as e:
-#         # tolerate exception and keep on going (wifi will reconnect asynchronously)
-#         log.error("tx", e)
-#         return
-
-#     # attach writer to socket
-#     swriter = asyncio.StreamWriter(sock, {})
-
-#     # we need to be quick now
+# async def task_network():
+#     # https://github.com/mitchins/micropython-wifimanager#asynchronous-usage-event-loop
+#     WifiManager.start_managing()
+#
 #     while True:
-#         try:
-#             # "header"
-#             buf = ustruct.pack("12sHI", MACHINE_UID, VERSION, utime.ticks_us())
-#             # "payload"
-#             buf += ustruct.pack(
-#                 "8f",
-#                 imu.accel.x,
-#                 imu.accel.y,
-#                 imu.accel.z,
-#                 imu.gyro.x,
-#                 imu.gyro.y,
-#                 imu.gyro.z,
-#                 fuse.pitch,
-#                 fuse.roll,
-#             )
-#             # send struct on the (invisible) wire
-#             await swriter.awrite(buf)
-#         except Exception as e:
-#             # tolerate exception and keep on going (it's udp anyway)
-#             log.error("tx", e)
+#         if (WifiManager.wlan().status() == 1010):
+#             # got connected
+#             log.info('net', 'connected: %s', WifiManager.ifconfig())
+#             # done here
 #             return
 #         await asyncio.sleep_ms(250)
 
+# async def read_coro():
+#     # TODO: validate sleepy time
+#     await asyncio.sleep_ms(50)
+#     # go with what is set right now
+#     imu_acc = imu.getAcceleration()
+#     imu_rot = imu.getRotation()
+#     return imu_acc, imu_rot
 
-async def switches():
-    global pressed
+
+# # necessary for long term stability
+# async def task_gc():
+#     while True:
+#         # wait first
+#         await asyncio.sleep_ms(5000)
+#         log.debug("gc", "running")
+#         # take the trash down now
+#         gc.collect()
+#         # adjust the threshold for the meantime
+#         gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
+#         # and give info for reference
+#         log.debug('gc', 'free: {}, allocated: {}'.format(gc.mem_free(), gc.mem_alloc()))
+
+
+async def task_led_ext(shared):
+    maf = filters.MovingAverageFilter(12)
+    mixer_offset = 0
+
     while True:
-        if pressed:
-            await asyncio.sleep_ms(50)
-            log.info("pressed!")
-            pressed = False
-        await asyncio.sleep_ms(100)
+        axis_sum = 0
+        for a in imu.getRotation():
+            axis_sum += abs(a)
+
+        avg = maf.update(axis_sum)
+
+        if(shared.save):
+            bright = 0.4
+        else:
+            bright = 0.7
+
+        if(avg > 7000):
+            bright -= 0.2
+        elif (avg < 1000):
+            avg = 500
+            bright += 0.2
+
+        mixer_offset += avg / 700000
+        # mixer_offset += axis_sum / 600000
+
+        for i in range(NUM_LEDS_EXT):
+            offset = mixer_offset + i / NUM_LEDS_EXT
+            color = fancy.palette_lookup(mixer_palette[shared.palette_idx], offset)
+            color = fancy.gamma_adjust(color, brightness=bright)
+
+            color_packed = color.pack()
+            led_ext[i] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff)
+
+        led_ext.write()
+        await asyncio.sleep_ms(20)
+
+
+async def task_led_int(shared):
+    maf = filters.MovingAverageFilter(4)
+
+    while True:
+        if(not shared.flash):
+            sleep_time = 500
+        else:
+            axis_sum = 0
+            white = 50
+            sleep_time = 100
+
+            if(shared.save):
+                bright = 0.4
+            else:
+                bright = 0.9
+
+            for a in imu.getRotation():
+                axis_sum += abs(a)
+
+            avg = maf.update(axis_sum)
+
+            if(avg < 5000):
+                sleep_time = 700
+
+                color = fancy.gamma_adjust(fancy.CRGB(1.0, 1.0, 1.0), brightness=bright)
+                color_packed = color.pack()
+                led_int[0] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff, white)
+
+                color = fancy.gamma_adjust(fancy.CRGB(1.0, 1.0, 1.0), brightness=bright)
+                color_packed = color.pack()
+                led_int[1] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff, white)
+
+                led_int.write()
+                await asyncio.sleep_ms(20)
+
+                led_int[0] = led_int[1] = (0,0,0,0)
+                led_int.write()
+
+        await asyncio.sleep_ms(sleep_time)
+
+
+# TODO: revamp
+mixer_palette = []
+mixer_palette.append([
+    fancy.CRGB(1.0, 0.0, 0.0),  # Red
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(1.0, 0.0, 0.5),  # Magenta
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 1.0),  # Blue
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.6, 0.4, 0.0),  # Orange
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.9, 0.0, 0.0),  # Red
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.9, 0.0, 0.4),  # Magenta
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.4, 0.0, 0.9),  # Purple
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.6, 0.4, 0.0),  # Orange
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+
+])
+
+mixer_palette.append([
+    fancy.CRGB(1.0, 0.0, 0.0),  # Red
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(1.0, 0.0, 0.0),  # Red
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(1.0, 0.0, 0.0),  # Red
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(1.0, 0.0, 0.0),  # Red
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+])
+
+mixer_palette.append([
+    fancy.CRGB(0.0, 1.0, 0.0),  # Green
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.7, 0.0, 0.7),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 1.0, 0.0),  # Green
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.2, 0.7, 0.5),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 1.0, 0.0),  # Green
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.7, 0.0, 0.7),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 1.0, 0.0),  # Green
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.2, 0.7, 0.5),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+])
+
+mixer_palette.append([
+    fancy.CRGB(1.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.5, 1.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 1.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 1.0, 0.5),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(1.0, 0.5, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.0),
+])
 
 
 async def main():
-    await fuse.start()
+    # await fuse.start()
+
+    tasks = []
+    shared = Shared()
 
     # tasks
-    t1 = asyncio.create_task(blinken())
-    t2 = asyncio.create_task(switches())
-    t3 = asyncio.create_task(mixer())
-    # # TODO: check
-    # if(WifiManager.wlan().status() == 1010):
-    #     t4 = asyncio.create_task(transmit())
-    #t5 = asyncio.create_task(mem_manage())
+    tasks.append(asyncio.create_task(task_vbat(shared)))
+    tasks.append(asyncio.create_task(task_blink(shared)))
+    tasks.append(asyncio.create_task(task_led_int(shared)))
+    tasks.append(asyncio.create_task(task_led_ext(shared)))
+
+    tasks.append(asyncio.create_task(eb_press(shared)))
+    tasks.append(asyncio.create_task(eb_double(shared)))
+    tasks.append(asyncio.create_task(eb_release(shared)))
+    tasks.append(asyncio.create_task(eb_long(shared)))
+
+    # net = asyncio.create_task(task_network())
+    # gc = asyncio.create_task(task_gc())
     repl = asyncio.create_task(aiorepl.task())
 
-    await asyncio.gather(t1, t2, t3, repl)
+    await asyncio.gather(*tasks, repl)
 
 
 # tidy memory
 gc.collect()
 # and give info for reference
-log.debug("gc", micropython.mem_info())
+micropython.mem_info()
 
 try:
-    fuse = Fusion(read_coro)
+    # fuse = Fusion(read_coro)
+    log.info("main", "running")
     asyncio.run(main())
 except KeyboardInterrupt:
     # humans

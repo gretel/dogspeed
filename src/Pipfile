@@ -1,4 +1,6 @@
 esptool
 mpr
 mpremote
+pip
+pylint
 pyserial

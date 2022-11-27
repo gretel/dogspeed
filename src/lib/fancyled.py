@@ -32,6 +32,12 @@ class CRGB:
             else:white=clamp(white,0,255)
             return denormalize(self.red),denormalize(self.green),denormalize(self.blue),white
         return denormalize(self.red)<<16|denormalize(self.green)<<8|denormalize(self.blue)
+    def tuple(self,white=_B):
+        if white:
+            if isinstance(white,float):white=denormalize(white)
+            else:white=clamp(white,0,255)
+            return ( denormalize(self.red),denormalize(self.green),denormalize(self.blue),white )
+        return ( denormalize(self.red)<<16|denormalize(self.green)<<8|denormalize(self.blue) )
 class CHSV:
     def __init__(self,h,s=_A,v=_A):
         if isinstance(h,float):self.hue=h
