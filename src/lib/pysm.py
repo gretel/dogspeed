@@ -1,23 +1,34 @@
-# https://github.com/pgularski/upysm
-import logging,sys
+_K='after'
+_J='before'
+_I='action'
+_H='to_state'
+_G='from_state'
+_F='enter'
+_E='exit'
+_D='condition'
+_C=False
+_B=True
+_A=None
+import log,sys
 from collections import defaultdict,deque
 if str(type(defaultdict)).find('module')>0:defaultdict=defaultdict.defaultdict
 def patch_deque(deque_module):
-    class deque_maxlen:
-        def __init__(self,iterable=None,maxlen=0):
-            if iterable is None:iterable=[]
-            if maxlen in[None,0]:maxlen=float('Inf')
-            self.q=deque_module.deque(iterable);self.maxlen=maxlen
-        def pop(self):return self.q.pop()
-        def append(self,item):
-            if self.maxlen>0 and len(self.q)>=self.maxlen:self.q.popleft()
-            self.q.append(item)
-        def __getattr__(self,name):return getattr(self.q,name)
-        def __bool__(self):return len(self.q)>0
-        def __len__(self):return len(self.q)
-        def __iter__(self):return iter(self.q)
-        def __getitem__(self,key):return self.q[key]
-    return deque_maxlen
+    class A:
+        def __init__(C,iterable=_A,maxlen=0):
+            B=maxlen;A=iterable
+            if A is _A:A=[]
+            if B in[_A,0]:B=float('Inf')
+            C.q=deque_module.deque(A);C.maxlen=B
+        def pop(A):return A.q.pop()
+        def append(A,item):
+            if A.maxlen>0 and len(A.q)>=A.maxlen:A.q.popleft()
+            A.q.append(item)
+        def __getattr__(A,name):return getattr(A.q,name)
+        def __bool__(A):return len(A.q)>0
+        def __len__(A):return len(A.q)
+        def __iter__(A):return iter(A.q)
+        def __getitem__(A,key):return A.q[key]
+    return A
 try:test_deque=deque(maxlen=1)
 except TypeError:
     if hasattr(deque,'deque'):deque=patch_deque(deque)
@@ -25,148 +36,158 @@ except TypeError:
         class MockDequeModule:deque=deque
         deque=patch_deque(MockDequeModule)
 else:del test_deque
-logger=logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 class AnyEvent:0
 any_event=AnyEvent()
 def is_iterable(obj):
     try:iter(obj)
-    except TypeError:return False
-    return True
+    except TypeError:return _C
+    return _B
 class StateMachineException(Exception):0
 class Event:
-    def __init__(self,name,input=None,**cargo):self.name=name;self.input=input;self.propagate=True;self.cargo=cargo;self.state_machine=None
-    def __repr__(self):return '<Event {0}, input={1}, cargo={2} ({3})>'.format(self.name,self.input,self.cargo,hex(id(self)))
+    def __init__(A,name,input=_A,**B):A.name=name;A.input=input;A.propagate=_B;A.cargo=B;A.state_machine=_A
+    def __repr__(A):return '<Event {0}, input={1}, cargo={2} ({3})>'.format(A.name,A.input,A.cargo,hex(id(A)))
 class State:
-    def __init__(self,name):self.parent=None;self.name=name;self.handlers={};self.initial=False;self.register_handlers()
-    def __repr__(self):return '<State {0} ({1})>'.format(self.name,hex(id(self)))
-    def register_handlers(self):0
-    def is_substate(self,state):
-        if state is self:return True
-        parent=self.parent
-        while parent:
-            if parent is state:return True
-            parent=parent.parent
-        return False
-    def _on(self,event):
-        if event.name in self.handlers:event.propagate=False;self.handlers[event.name](self,event)
-        if self.parent and event.propagate and event.name not in('exit','enter'):self.parent._on(event)
-    def _nop(self,state,event):del state;del event;return True
+    def __init__(A,name):A.parent=_A;A.name=name;A.handlers={};A.initial=_C;A.register_handlers()
+    def __repr__(A):return '<State {0} ({1})>'.format(A.name,hex(id(A)))
+    def register_handlers(A):0
+    def is_substate(B,state):
+        C=state
+        if C is B:return _B
+        A=B.parent
+        while A:
+            if A is C:return _B
+            A=A.parent
+        return _C
+    def _on(B,event):
+        A=event
+        if A.name in B.handlers:A.propagate=_C;B.handlers[A.name](B,A)
+        if B.parent and A.propagate and A.name not in(_E,_F):B.parent._on(A)
+    def _nop(A,state,event):del state;del event;return _B
 class TransitionsContainer:
-    def __init__(self,machine):self._machine=machine;self._transitions=defaultdict(list)
-    def add(self,key,transition):self._transitions[key].append(transition)
-    def get(self,event):key=self._machine.state,event.name,event.input;return self._get_transition_matching_condition(key,event)
-    def _get_transition_matching_condition(self,key,event):
-        from_state=self._machine.leaf_state
-        for transition in self._transitions[key]:
-            if transition['condition'](from_state,event)is True:return transition
-        key=self._machine.state,any_event,event.input
-        for transition in self._transitions[key]:
-            if transition['condition'](from_state,event)is True:return transition
-        return None
+    def __init__(A,machine):A._machine=machine;A._transitions=defaultdict(list)
+    def add(A,key,transition):A._transitions[key].append(transition)
+    def get(B,event):A=event;C=B._machine.state,A.name,A.input;return B._get_transition_matching_condition(C,A)
+    def _get_transition_matching_condition(B,key,event):
+        D=event;C=key;E=B._machine.leaf_state
+        for A in B._transitions[C]:
+            if A[_D](E,D)is _B:return A
+        C=B._machine.state,any_event,D.input
+        for A in B._transitions[C]:
+            if A[_D](E,D)is _B:return A
+        return _A
 class Stack:
-    def __init__(self,maxlen=None):self.deque=deque(maxlen=maxlen)
-    def pop(self):return self.deque.pop()
-    def push(self,value):self.deque.append(value)
-    def peek(self):return self.deque[-1]
-    def __repr__(self):return str(list(self.deque))
+    def __init__(A,maxlen=_A):A.deque=deque(maxlen=maxlen)
+    def pop(A):return A.deque.pop()
+    def push(A,value):A.deque.append(value)
+    def peek(A):return A.deque[-1]
+    def __repr__(A):return str(list(A.deque))
 class StateMachine(State):
     STACK_SIZE=32
-    def __init__(self,name):super(StateMachine,self).__init__(name);self.states=set();self.state=None;self._transitions=TransitionsContainer(self);self.state_stack=Stack(maxlen=StateMachine.STACK_SIZE);self.leaf_state_stack=Stack(maxlen=StateMachine.STACK_SIZE);self.stack=Stack();self._leaf_state=None
-    def add_state(self,state,initial=False):Validator(self).validate_add_state(state,initial);state.initial=initial;state.parent=self;self.states.add(state)
-    def add_states(self,*states):
-        for state in states:self.add_state(state)
-    def set_initial_state(self,state):Validator(self).validate_set_initial(state);state.initial=True
+    def __init__(A,name):super(StateMachine,A).__init__(name);A.states=set();A.state=_A;A._transitions=TransitionsContainer(A);A.state_stack=Stack(maxlen=StateMachine.STACK_SIZE);A.leaf_state_stack=Stack(maxlen=StateMachine.STACK_SIZE);A.stack=Stack();A._leaf_state=_A
+    def add_state(B,state,initial=_C):C=initial;A=state;Validator(B).validate_add_state(A,C);A.initial=C;A.parent=B;B.states.add(A)
+    def add_states(A,*B):
+        for C in B:A.add_state(C)
+    def set_initial_state(B,state):A=state;Validator(B).validate_set_initial(A);A.initial=_B
     @property
     def initial_state(self):
-        for state in self.states:
-            if state.initial:return state
-        return None
+        for A in self.states:
+            if A.initial:return A
+        return _A
     @property
     def root_machine(self):
-        machine=self
-        while machine.parent:machine=machine.parent
-        return machine
-    def add_transition(self,from_state,to_state,events,input=None,action=None,condition=None,before=None,after=None):
-        if input is None:input=tuple([None])
-        if action is None:action=self._nop
-        if before is None:before=self._nop
-        if after is None:after=self._nop
-        if condition is None:condition=self._nop
-        Validator(self).validate_add_transition(from_state,to_state,events,input)
-        for input_value in input:
-            for event in events:key=from_state,event,input_value;transition={'from_state':from_state,'to_state':to_state,'action':action,'condition':condition,'before':before,'after':after};self._transitions.add(key,transition)
-    def _get_transition(self,event):
-        machine=self.leaf_state.parent
-        while machine:
-            transition=machine._transitions.get(event)
-            if transition:return transition
-            machine=machine.parent
-        return None
+        A=self
+        while A.parent:A=A.parent
+        return A
+    def add_transition(A,from_state,to_state,events,input=_A,action=_A,condition=_A,before=_A,after=_A):
+        H=events;G=to_state;F=after;E=before;D=condition;C=action;B=from_state
+        if input is _A:input=tuple([_A])
+        if C is _A:C=A._nop
+        if E is _A:E=A._nop
+        if F is _A:F=A._nop
+        if D is _A:D=A._nop
+        Validator(A).validate_add_transition(B,G,H,input)
+        for I in input:
+            for J in H:K=B,J,I;L={_G:B,_H:G,_I:C,_D:D,_J:E,_K:F};A._transitions.add(K,L)
+    def _get_transition(C,event):
+        A=C.leaf_state.parent
+        while A:
+            B=A._transitions.get(event)
+            if B:return B
+            A=A.parent
+        return _A
     @property
     def leaf_state(self):return self.root_machine._leaf_state
-    def _get_leaf_state(self,state):
-        while hasattr(state,'state')and state.state is not None:state=state.state
-        return state
-    def initialize(self):
-        machines=deque();machines.append(self)
-        while machines:
-            machine=machines.popleft();Validator(self).validate_initial_state(machine);machine.state=machine.initial_state
-            for child_state in machine.states:
-                if isinstance(child_state,StateMachine):machines.append(child_state)
-        self._leaf_state=self._get_leaf_state(self)
-    def dispatch(self,event):
-        event.state_machine=self;leaf_state_before=self.leaf_state;leaf_state_before._on(event);transition=self._get_transition(event)
-        if transition is None:return
-        to_state=transition['to_state'];from_state=transition['from_state'];transition['before'](leaf_state_before,event);top_state=self._exit_states(event,from_state,to_state);transition['action'](leaf_state_before,event);self._enter_states(event,top_state,to_state);transition['after'](self.leaf_state,event)
-    def _exit_states(self,event,from_state,to_state):
-        if to_state is None:return None
-        state=self.leaf_state;self.leaf_state_stack.push(state)
-        while state.parent and not(from_state.is_substate(state)and to_state.is_substate(state))or state==from_state==to_state:logger.debug('exiting %s',state.name);exit_event=Event('exit',propagate=False,source_event=event);exit_event.state_machine=self;self.root_machine._leaf_state=state;state._on(exit_event);state.parent.state_stack.push(state);state.parent.state=state.parent.initial_state;state=state.parent
-        return state
-    def _enter_states(self,event,top_state,to_state):
-        if to_state is None:return
-        path=[];state=self._get_leaf_state(to_state)
-        while state.parent and state!=top_state:path.append(state);state=state.parent
-        for state in reversed(path):logger.debug('entering %s',state.name);enter_event=Event('enter',propagate=False,source_event=event);enter_event.state_machine=self;self.root_machine._leaf_state=state;state._on(enter_event);state.parent.state=state
-    def set_previous_leaf_state(self,event=None):
-        if event is not None:event.state_machine=self
-        from_state=self.leaf_state
-        try:to_state=self.leaf_state_stack.peek()
+    def _get_leaf_state(B,state):
+        A=state
+        while hasattr(A,'state')and A.state is not _A:A=A.state
+        return A
+    def initialize(A):
+        B=deque();B.append(A)
+        while B:
+            C=B.popleft();Validator(A).validate_initial_state(C);C.state=C.initial_state
+            for D in C.states:
+                if isinstance(D,StateMachine):B.append(D)
+        A._leaf_state=A._get_leaf_state(A)
+    def dispatch(B,event):
+        A=event;A.state_machine=B;D=B.leaf_state;D._on(A);C=B._get_transition(A)
+        if C is _A:return
+        E=C[_H];F=C[_G];C[_J](D,A);G=B._exit_states(A,F,E);C[_I](D,A);B._enter_states(A,G,E);C[_K](B.leaf_state,A)
+    def _exit_states(B,event,from_state,to_state):
+        D=from_state;C=to_state
+        if C is _A:return _A
+        A=B.leaf_state;B.leaf_state_stack.push(A)
+        while A.parent and not(D.is_substate(A)and C.is_substate(A))or A==D==C:log.debug('exiting %s',A.name);E=Event(_E,propagate=_C,source_event=event);E.state_machine=B;B.root_machine._leaf_state=A;A._on(E);A.parent.state_stack.push(A);A.parent.state=A.parent.initial_state;A=A.parent
+        return A
+    def _enter_states(B,event,top_state,to_state):
+        C=to_state
+        if C is _A:return
+        D=[];A=B._get_leaf_state(C)
+        while A.parent and A!=top_state:D.append(A);A=A.parent
+        for A in reversed(D):log.debug('entering %s',A.name);E=Event(_F,propagate=_C,source_event=event);E.state_machine=B;B.root_machine._leaf_state=A;A._on(E);A.parent.state=A
+    def set_previous_leaf_state(A,event=_A):
+        B=event
+        if B is not _A:B.state_machine=A
+        D=A.leaf_state
+        try:C=A.leaf_state_stack.peek()
         except IndexError:return
-        top_state=self._exit_states(event,from_state,to_state);self._enter_states(event,top_state,to_state)
-    def revert_to_previous_leaf_state(self,event=None):
-        self.set_previous_leaf_state(event)
-        try:self.leaf_state_stack.pop();self.leaf_state_stack.pop()
+        E=A._exit_states(B,D,C);A._enter_states(B,E,C)
+    def revert_to_previous_leaf_state(A,event=_A):
+        A.set_previous_leaf_state(event)
+        try:A.leaf_state_stack.pop();A.leaf_state_stack.pop()
         except IndexError:return
 class Validator:
-    def __init__(self,state_machine):self.state_machine=state_machine;self.template='Machine "{0}" error: {1}'.format(self.state_machine.name,'{0}')
-    def _raise(self,msg):raise StateMachineException(self.template.format(msg))
-    def validate_add_state(self,state,initial):
-        if not isinstance(state,State):msg='Unable to add state of type {0}'.format(type(state));self._raise(msg)
-        self._validate_state_already_added(state)
-        if initial is True:self.validate_set_initial(state)
-    def _validate_state_already_added(self,state):
-        root_machine=self.state_machine.root_machine;machines=deque();machines.append(root_machine)
-        while machines:
-            machine=machines.popleft()
-            if state in machine.states and machine is not self.state_machine:msg='Machine "{0}" error: State "{1}" is already added to machine "{2}"'.format(self.state_machine.name,state.name,machine.name);self._raise(msg)
-            for child_state in machine.states:
-                if isinstance(child_state,StateMachine):machines.append(child_state)
-    def validate_set_initial(self,state):
-        for added_state in self.state_machine.states:
-            if added_state.initial is True and added_state is not state:msg='Unable to set initial state to "{0}". Initial state is already set to "{1}"'.format(state.name,added_state.name);self._raise(msg)
-    def validate_add_transition(self,from_state,to_state,events,input):self._validate_from_state(from_state);self._validate_to_state(to_state);self._validate_events(events);self._validate_input(input)
-    def _validate_from_state(self,from_state):
-        if from_state not in self.state_machine.states:msg='Unable to add transition from unknown state "{0}"'.format(from_state.name);self._raise(msg)
-    def _validate_to_state(self,to_state):
-        root_machine=self.state_machine.root_machine
-        if to_state is None:return
-        elif to_state is root_machine:return
-        elif not to_state.is_substate(root_machine):msg='Unable to add transition to unknown state "{0}"'.format(to_state.name);self._raise(msg)
-    def _validate_events(self,events):
-        if not is_iterable(events):msg='Unable to add transition, events is not iterable: {0}'.format(events);self._raise(msg)
-    def _validate_input(self,input):
-        if not is_iterable(input):msg='Unable to add transition, input is not iterable: {0}'.format(input);self._raise(msg)
-    def validate_initial_state(self,machine):
-        if machine.states and not machine.initial_state:msg='Machine "{0}" has no initial state'.format(machine.name);self._raise(msg)
+    def __init__(A,state_machine):A.state_machine=state_machine;A.template='Machine "{0}" error: {1}'.format(A.state_machine.name,'{0}')
+    def _raise(A,msg):raise StateMachineException(A.template.format(msg))
+    def validate_add_state(B,state,initial):
+        A=state
+        if not isinstance(A,State):C='Unable to add state of type {0}'.format(type(A));B._raise(C)
+        B._validate_state_already_added(A)
+        if initial is _B:B.validate_set_initial(A)
+    def _validate_state_already_added(A,state):
+        D=state;F=A.state_machine.root_machine;B=deque();B.append(F)
+        while B:
+            C=B.popleft()
+            if D in C.states and C is not A.state_machine:G='Machine "{0}" error: State "{1}" is already added to machine "{2}"'.format(A.state_machine.name,D.name,C.name);A._raise(G)
+            for E in C.states:
+                if isinstance(E,StateMachine):B.append(E)
+    def validate_set_initial(B,state):
+        C=state
+        for A in B.state_machine.states:
+            if A.initial is _B and A is not C:D='Unable to set initial state to "{0}". Initial state is already set to "{1}"'.format(C.name,A.name);B._raise(D)
+    def validate_add_transition(A,from_state,to_state,events,input):A._validate_from_state(from_state);A._validate_to_state(to_state);A._validate_events(events);A._validate_input(input)
+    def _validate_from_state(A,from_state):
+        B=from_state
+        if B not in A.state_machine.states:C='Unable to add transition from unknown state "{0}"'.format(B.name);A._raise(C)
+    def _validate_to_state(B,to_state):
+        A=to_state;C=B.state_machine.root_machine
+        if A is _A:return
+        elif A is C:return
+        elif not A.is_substate(C):D='Unable to add transition to unknown state "{0}"'.format(A.name);B._raise(D)
+    def _validate_events(B,events):
+        A=events
+        if not is_iterable(A):C='Unable to add transition, events is not iterable: {0}'.format(A);B._raise(C)
+    def _validate_input(A,input):
+        if not is_iterable(input):B='Unable to add transition, input is not iterable: {0}'.format(input);A._raise(B)
+    def validate_initial_state(B,machine):
+        A=machine
+        if A.states and not A.initial_state:C='Machine "{0}" has no initial state'.format(A.name);B._raise(C)
