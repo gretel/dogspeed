@@ -2,5 +2,5 @@ esptool
 mpr
 mpremote
 pip
-pylint
+ruff
 pyserial

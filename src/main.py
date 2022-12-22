@@ -11,7 +11,7 @@ import uasyncio as asyncio
 from primitives import EButton
 import aiorepl
 import filters
-from wifi_manager import WifiManager
+# from wifi_manager import WifiManager
 
 
 class Shared:
@@ -22,8 +22,7 @@ class Shared:
         self.rot_avg_long = 0
         self.vbat = 0
 
-        self.bright_ext = 0.8
-        self.bright_int = 0.9
+        self.bright = 0.6
         self.flash = 1
         self.ifconfig = {}
         self.low_power = False
@@ -32,16 +31,10 @@ class Shared:
 
 # in the beginning there is the declaration of a protocol version
 VERSION = const(0x06)
-
 VBAT_CORR = const(218)
-
-NUM_LEDS_INT = const(2)
-NUM_LEDS_EXT = const(44)
-
-LOW_ACCEL_THRESH = const(5000)
-OFFSET_INCR_DIV = const(660000)
-
-# configuration files to load at runtime
+NUM_LEDS = const(44)
+LOW_ACCEL_THRESH = const(5200)
+OFFSET_INCR_DIV = const(650000)
 FILE_UID = "/uid.json"
 
 
@@ -49,13 +42,9 @@ led_board = neopixel.NeoPixel(machine.Pin(27, Pin.OUT), 1)  # GPIO27
 led_board[0] = (30, 0, 30, 0)
 led_board.write()
 
-led_int = neopixel.NeoPixel(machine.Pin(22), NUM_LEDS_INT, bpp=4)  # GPIO22
-led_int[0] = (0, 30, 0, 0)
-led_int[1] = (30, 0, 0, 0)
-led_int.write()
-
-led_ext = neopixel.NeoPixel(machine.Pin(32), NUM_LEDS_EXT, bpp=3)  # GPIO32
-led_ext.write()
+led_strip = neopixel.NeoPixel(machine.Pin(32), NUM_LEDS, bpp=3)  # GPIO32
+led_strip.fill((0,0,0))
+led_strip.write()
 
 vbat_pin = Pin(33, Pin.IN)  # GPIO33
 vbat_adc = ADC(vbat_pin)
@@ -148,16 +137,15 @@ log.debug('i2c', i2c)
 
 # imu
 imu = BMI160_I2C(i2c)
-imu.set_accel_rate(6)
-imu.set_gyro_rate(6)
-#imu.setAccelDLPFMode(0)
-imu.setFullScaleAccelRange(5, 5)
-# imu.setFullScaleGyroRange(3, 3)
+imu.set_accel_rate(7)
+imu.set_gyro_rate(7)
+# imu.setAccelDLPFMode(0)
+imu.setFullScaleAccelRange(0X05, 4)
+imu.setFullScaleGyroRange(3, 250)
 
 imu.setZeroMotionDetectionDuration(1)
 imu.setZeroMotionDetectionThreshold(2)
 imu.setIntZeroMotionEnabled(True)
-# TODO: imu.getIntZeroMotionStatus()
 
 log.debug('imu', 'temperature: {}'.format(imu.getTemperature()))
 
@@ -201,9 +189,10 @@ async def task_blink(shared):
         if vbat > 4.1:
             color = (0, 10, 0, 0)
             sleep_time = 1500
+            shared.balance = 1.0
         elif vbat > 3.8:
             color = (5, 5, 0, 0)
-            shared.balance = -0.1
+            shared.balance = 0
         elif vbat > 3.5:
             color = (10, 0, 0, 0)
             sleep_time = 750
@@ -225,17 +214,17 @@ async def task_blink(shared):
         await asyncio.sleep_ms(sleep_time)
 
 
-async def task_network(shared):
-    # https://github.com/mitchins/micropython-wifimanager#asynchronous-usage-event-loop
-    WifiManager.start_managing()
-    while True:
-        if (WifiManager.wlan().status() == 1010):
-            shared.ifconfig = WifiManager.ifconfig()
-            # got connected
-            log.info('net', 'connected: {}'.format(shared.ifconfig))
-            # done here
-            return
-        await asyncio.sleep_ms(250)
+# async def task_network(shared):
+#     # https://github.com/mitchins/micropython-wifimanager#asynchronous-usage-event-loop
+#     WifiManager.start_managing()
+#     while True:
+#         if (WifiManager.wlan().status() == 1010):
+#             shared.ifconfig = WifiManager.ifconfig()
+#             # got connected
+#             log.info('net', 'connected: {}'.format(shared.ifconfig))
+#             # done here
+#             return
+#         await asyncio.sleep_ms(250)
 
 
 # async def task_gc():
@@ -251,68 +240,36 @@ async def task_network(shared):
 #         log.debug('gc', 'free: {}, allocated: {}'.format(gc.mem_free(), gc.mem_alloc()))
 
 
-async def task_led_ext(shared):
+async def task_led_strip(shared):
     mixer_offset = 0
-
     while True:
-        bright = shared.bright_ext + shared.balance
+        bright = shared.bright + shared.balance
         avg = shared.rot_avg_long
         if (avg < 500):
             avg = 500
         mixer_offset += avg / OFFSET_INCR_DIV
-        for i in range(NUM_LEDS_EXT):
-            offset = mixer_offset + i / NUM_LEDS_EXT
+        for i in range(NUM_LEDS):
+            offset = mixer_offset + i / NUM_LEDS
             color = fancy.palette_lookup(mixer_palette[shared.palette_idx], offset)
             color = fancy.gamma_adjust(color, brightness=bright)
             color_packed = color.pack()
-            led_ext[i] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff)
-        led_ext.write()
-        await asyncio.sleep_ms(10)
+            led_strip[i] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff)
+        led_strip.write()
+        await asyncio.sleep_ms(15)
 
 
-async def task_led_int(shared):
-    side = 0
-    black_tup = (0,0,0,0)
-
-    led_int[0] = black_tup
-    led_int[1] = black_tup
-
+async def task_twinkle(shared):
+    random.seed()
     while True:
-        sleep_time = 500
-        bright = shared.bright_int + shared.balance
-        if(not shared.flash):
-            # force off
-            led_int[0] = black_tup
-            led_int[1] = black_tup
-            led_int.write()
+        if(shared.flash):
+            rand_led = random.randint(0, NUM_LEDS - 1)
+            if(rand_led % 2):
+                led_strip[rand_led] = (230,230,230)
+                led_strip.write()
+                await asyncio.sleep_ms(15)
+            await asyncio.sleep_ms(400)
         else:
-            avg = shared.rot_avg_short
-            if(avg < LOW_ACCEL_THRESH):
-                color = fancy.gamma_adjust(fancy.CRGB(1.0, 1.0, 1.0), brightness=bright)
-                color_packed = color.pack()
-                flash_color = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff, 100)
-                if(side):
-                    # time to pass between concurrent flashes of each side
-                    sleep_time = 25
-                    led_int[0] = flash_color
-                else:
-                    led_int[1] = flash_color
-                led_int.write()
-                await asyncio.sleep_ms(18)
-            else:
-                rand_led = random.randint(0, NUM_LEDS_EXT - 1)
-                if(rand_led % 2):
-                    led_ext[rand_led] = (230,230,230)
-                    led_ext.write()
-                    await asyncio.sleep_ms(10)
-            # off
-            led_int[0] = black_tup
-            led_int[1] = black_tup
-            led_int.write()
-
-        # toggle
-        side ^= 1
-        await asyncio.sleep_ms(sleep_time)
+            await asyncio.sleep_ms(1000)
 
 
 # TODO: revamp
@@ -387,81 +344,37 @@ mixer_palette.append([
 
 # brightsafe
 mixer_palette.append([
-    fancy.CRGB(0.1, 0.7, 0.0),  # Green
+    fancy.CRGB(0.0, 0.4, 0.5),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.6, 0.0, 0.6),
+    fancy.CRGB(0.5, 0.0, 0.6),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.8, 0.0),  # Green
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.5, 0.5),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.1, 0.7, 0.0),  # Green
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.6, 0.0, 0.6),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.8, 0.0),  # Green
+    fancy.CRGB(0.8, 0.0, 0.7),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.5, 0.5),
+    fancy.CRGB(0.0, 0.4, 0.6),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-])
-
-# goldenretri
-mixer_palette.append([
-    fancy.CRGB(0.8, 0.4, 0.0),
-    fancy.CRGB(0.6, 0.5, 0.3),
+    fancy.CRGB(0.0, 0.4, 0.5),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.5, 0.0, 0.6),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.9, 0.3, 0.0),
-    fancy.CRGB(0.6, 0.4, 0.3),
+    fancy.CRGB(0.8, 0.0, 0.7),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.9, 0.3, 0.0),
-    fancy.CRGB(0.6, 0.5, 0.3),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.8, 0.3, 0.0),
-    fancy.CRGB(0.6, 0.4, 0.3),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),    
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.9, 0.4, 0.0),
-    fancy.CRGB(0.6, 0.5, 0.3),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.0, 0.0),
+    fancy.CRGB(0.0, 0.4, 0.6),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
@@ -475,7 +388,7 @@ mixer_palette.append([
     fancy.CRGB(0.0, 0.4, 0.0),  # Green
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.1, 0.4),  # Blue
+    fancy.CRGB(0.9, 0.3, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
@@ -489,7 +402,7 @@ mixer_palette.append([
     fancy.CRGB(0.0, 0.4, 0.0),  # Green
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.0, 0.1, 0.4),  # Blue
+    fancy.CRGB(0.9, 0.3, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
@@ -507,8 +420,8 @@ async def main():
     tasks.append(asyncio.create_task(task_vbat(shared)))
     tasks.append(asyncio.create_task(task_imu(shared)))
     tasks.append(asyncio.create_task(task_blink(shared)))
-    tasks.append(asyncio.create_task(task_led_int(shared)))
-    tasks.append(asyncio.create_task(task_led_ext(shared)))
+    tasks.append(asyncio.create_task(task_twinkle(shared)))
+    tasks.append(asyncio.create_task(task_led_strip(shared)))
     tasks.append(asyncio.create_task(eb_press(shared)))
     tasks.append(asyncio.create_task(eb_double(shared)))
     # tasks.append(asyncio.create_task(eb_release(shared)))
@@ -522,14 +435,9 @@ async def main():
 def _stop():
     led_board.fill((0,0,0))
     led_board.write()
-    led_int.fill((0,0,0,0))
-    led_int.write()
-    led_ext.fill((0,0,0))
-    led_ext.write()
+    led_strip.fill((0,0,0))
+    led_strip.write()
 
-
-# throw seeds
-random.seed()
 
 # tidy memory
 gc.collect()
