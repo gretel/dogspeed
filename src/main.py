@@ -186,13 +186,13 @@ async def task_blink(shared):
         color = (0, 0, 10, 0)
 
         vbat = shared.vbat
-        if vbat > 4.1:
+        if vbat > 4.0:
             color = (0, 10, 0, 0)
             sleep_time = 1500
-            shared.balance = 1.0
+            shared.balance = 0
         elif vbat > 3.8:
             color = (5, 5, 0, 0)
-            shared.balance = 0
+            shared.balance = -0.1
         elif vbat > 3.5:
             color = (10, 0, 0, 0)
             sleep_time = 750
@@ -255,7 +255,7 @@ async def task_led_strip(shared):
             color_packed = color.pack()
             led_strip[i] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff)
         led_strip.write()
-        await asyncio.sleep_ms(15)
+        await asyncio.sleep_ms(20)
 
 
 async def task_twinkle(shared):
@@ -264,10 +264,10 @@ async def task_twinkle(shared):
         if(shared.flash):
             rand_led = random.randint(0, NUM_LEDS - 1)
             if(rand_led % 2):
-                led_strip[rand_led] = (230,230,230)
+                led_strip[rand_led] = (230,220,220)
                 led_strip.write()
-                await asyncio.sleep_ms(15)
-            await asyncio.sleep_ms(400)
+                await asyncio.sleep_ms(20)
+            await asyncio.sleep_ms(500)
         else:
             await asyncio.sleep_ms(1000)
 
@@ -277,7 +277,7 @@ mixer_palette = []
 
 # yoko
 mixer_palette.append([
-    fancy.CRGB(0.8, 0.0, 0.0),  # Red
+    fancy.CRGB(0.7, 0.0, 0.0),  # Red
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.7, 0.4, 0.0),  # Orange
@@ -291,7 +291,7 @@ mixer_palette.append([
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.8, 0.0, 0.0),  # Red
+    fancy.CRGB(0.7, 0.0, 0.0),  # Red
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.7, 0.0, 0.4),  # Magenta
@@ -309,7 +309,7 @@ mixer_palette.append([
 
 # efficient
 mixer_palette.append([
-    fancy.CRGB(1.0, 0.0, 0.0),  # Red
+    fancy.CRGB(0.9, 0.0, 0.1),  # Red
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
@@ -324,7 +324,7 @@ mixer_palette.append([
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(1.0, 0.0, 0.0),  # Red
+    fancy.CRGB(0.9, 0.0, 0.1),  # Red
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
@@ -382,13 +382,13 @@ mixer_palette.append([
 
 # xmas
 mixer_palette.append([
-    fancy.CRGB(0.9, 0.0, 0.0),  # Red
+    fancy.CRGB(0.0, 0.0, 0.4),  # Red
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.4, 0.0),  # Green
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.9, 0.3, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.8),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
@@ -396,13 +396,13 @@ mixer_palette.append([
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.9, 0.0, 0.0),  # Red
+    fancy.CRGB(0.0, 0.0, 0.4),  # Red
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.4, 0.0),  # Green
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
-    fancy.CRGB(0.9, 0.3, 0.0),
+    fancy.CRGB(0.0, 0.0, 0.8),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
     fancy.CRGB(0.0, 0.0, 0.0),
