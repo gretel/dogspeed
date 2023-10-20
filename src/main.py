@@ -34,7 +34,7 @@ VERSION = const(0x06)
 VBAT_CORR = const(218)
 NUM_LEDS = const(44)
 LOW_ACCEL_THRESH = const(5200)
-OFFSET_INCR_DIV = const(650000)
+OFFSET_INCR_DIV = const(640000)
 FILE_UID = "/uid.json"
 
 
@@ -264,10 +264,10 @@ async def task_twinkle(shared):
         if(shared.flash):
             rand_led = random.randint(0, NUM_LEDS - 1)
             if(rand_led % 2):
-                led_strip[rand_led] = (230,220,220)
+                led_strip[rand_led] = (210,210,210)
                 led_strip.write()
                 await asyncio.sleep_ms(20)
-            await asyncio.sleep_ms(500)
+            await asyncio.sleep_ms(600)
         else:
             await asyncio.sleep_ms(1000)
 
