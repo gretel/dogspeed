@@ -11,8 +11,7 @@ import uasyncio as asyncio
 from primitives import EButton
 import aiorepl
 import filters
-# from wifi_manager import WifiManager
-
+#from wifi_manager import WifiManager
 
 class Shared:
     def __init__(self):
@@ -59,34 +58,29 @@ button.double_click_ms = 1000
 
 async def eb_press(shared):
     while True:
-        button.press.clear()
-        await button.press.wait()
-        if(shared.palette_idx == len(mixer_palette) - 1):
-            shared.palette_idx = 0
-        else:
-            shared.palette_idx += 1
+        await button.press.wait()  # Wait for button press event
+        button.press.clear()  # Clear the event flag
+        shared.palette_idx = (shared.palette_idx + 1) % len(mixer_palette)
+        # Log the updated palette index directly
         log.info('btn', 'palette: {}'.format(shared.palette_idx))
 
 
 async def eb_long(shared):
     while True:
-        button.long.clear()
-        await button.long.wait()
-        shared.low_power ^= True
-        if(shared.low_power):
-            # TODO: abstraction
-            shared.balance = -0.4
-        else:
-            shared.balance = 0
+        await button.long.wait()  # Wait for long-press event
+        button.long.clear()  # Clear the event flag
+        shared.low_power = not shared.low_power  # Toggle the low_power state
+        shared.balance = -0.4 if shared.low_power else 0
+        # Log the current low_power state and balance directly
         log.info('btn', 'low_power: {}, balance: {}'.format(shared.low_power, shared.balance))
 
 
 async def eb_double(shared):
     while True:
-        button.double.clear()
-        await button.double.wait()
-        shared.flash ^= True
-        log.info('btn', 'flash: {}'.format(shared.flash))
+        await button.double.wait()  # Wait for double-click event
+        button.double.clear()  # Clear the event flag
+        shared.flash = not shared.flash  # Toggle the flash state
+        log.info('btn', 'flash: {}'.format(shared.flash))  # Log the current flash state directly
 
 
 # async def eb_release(shared):
@@ -96,37 +90,32 @@ async def eb_double(shared):
 #         # log.debug('btn', 'release')
 
 
-# inhale json
 def read_json(filename):
-    log.debug("json", "reading {}".format(filename))
-    with open(filename, "r") as f:
-        j = ujson.loads(f.read())
-        f.close()
-        return j
+    try:
+        with open(filename, "r") as f:
+            return ujson.load(f)
+    except (OSError, ValueError) as e:
+        log.error("json", f"Error reading/parsing {filename}: {e}")
+    return None
 
 
-# exhale json
-def write_json(filename, j):
-    log.info("json", "writing {}".format(filename))
+def write_json(filename, data):
+    log.info("json", f"writing {filename}")
     with open(filename, "w") as f:
-        ujson.dump(j, f)
-        f.close()
+        ujson.dump(data, f)
 
 
-# identify ourselves uniquely
 MACHINE_UID = ubinascii.hexlify(machine.unique_id()).decode("utf-8")
 
 try:
-    # if exist read last stored uid to prevent wearing flash if no change is required
-    r = read_json(FILE_UID)
-except OSError as e:
-    r = None
-finally:
-    log.info("uid", MACHINE_UID)
+    stored_uid = read_json(FILE_UID)
+except (OSError, ValueError):
+    stored_uid = None
 
-# store if nonexistent or different
-if r is None or r["uid"] != MACHINE_UID:
+if not stored_uid or stored_uid.get("uid") != MACHINE_UID:
     write_json(FILE_UID, {"uid": MACHINE_UID})
+
+log.info("uid", MACHINE_UID)
 
 
 # frequency high, updates lots
@@ -135,56 +124,73 @@ i2c = SoftI2C(scl=Pin(21), sda=Pin(25), freq=400000)  # SCL: GPIO21, SDA: GPIO25
 log.debug('i2c', i2c)
 
 
-# imu
+# Initialize BMI160 IMU
 imu = BMI160_I2C(i2c)
-imu.set_accel_rate(7)
-imu.set_gyro_rate(7)
-# imu.setAccelDLPFMode(0)
-imu.setFullScaleAccelRange(0X05, 4)
-imu.setFullScaleGyroRange(3, 250)
-
-imu.setZeroMotionDetectionDuration(1)
-imu.setZeroMotionDetectionThreshold(2)
-imu.setIntZeroMotionEnabled(True)
-
+# Configure IMU settings
+imu.set_accel_rate(7)  # Set accelerometer data rate
+imu.setFullScaleAccelRange(0X05)  # Set accelerometer full-scale range to ±4g
+imu.set_gyro_rate(7)  # Set gyroscope data rate
+imu.setFullScaleGyroRange(3)  # Set gyroscope full-scale range to ±250 deg/s
+imu.setZeroMotionDetectionDuration(1)  # Set zero motion detection duration to 1 second
+imu.setZeroMotionDetectionThreshold(2)  # Set zero motion detection threshold to 2
+imu.setIntZeroMotionEnabled(True)  # Enable zero motion interrupt
 log.debug('imu', 'temperature: {}'.format(imu.getTemperature()))
 
 
 async def task_imu(shared):
-    maf_long = filters.MovingAverageFilter(10)
-    maf_short = filters.MovingAverageFilter(4)
+   maf_long = filters.MovingAverageFilter(10)
+   maf_short = filters.MovingAverageFilter(4)
 
-    while True:
-        sleep_time = 200
-        sum = 0
-        for a in imu.getRotation():
-            sum += abs(a)
-        shared.rot_avg_long = maf_long.update(sum)
-        shared.rot_avg_short = maf_short.update(sum)
-        shared.zero_motion = imu.getIntZeroMotionStatus()
-        if(shared.zero_motion):
-            log.info('imu', 'zero motion')
-            sleep_time = 1000
-        await asyncio.sleep_ms(sleep_time)
+   prev_rotations = [0, 0, 0]  # Initialize previous rotation values
+   sum_rotation = 0  # Initialize sum of absolute rotations
+
+   while True:
+       rotations = imu.getRotation()
+       # Update sum_rotation incrementally
+       sum_rotation -= sum(abs(x) for x in prev_rotations)
+       sum_rotation += sum(abs(x) for x in rotations)
+       prev_rotations = rotations
+
+       shared.rot_avg_long = maf_long.update(sum_rotation)
+       shared.rot_avg_short = maf_short.update(sum_rotation)
+       shared.zero_motion = imu.getIntZeroMotionStatus()
+
+       if shared.zero_motion:
+           log.info('imu', 'zero motion interrupt')
+           sleep_time = 1000
+       else:
+           # Adjust sleep_time based on the rate of change in sensor data
+           delta = abs(sum_rotation - shared.rot_avg_long)
+           sleep_time = max(50, 200 - int(delta) // 10)
+
+       await asyncio.sleep_ms(sleep_time)
 
 
 async def task_vbat(shared):
+    # Precompute constant for voltage conversion
+    VBAT_CONV_FACTOR = 0.00080586 * 2.18  # (3.3 / 4095 * VBAT_CORR / 100)
+
     while True:
         # Read ADC and convert to voltage
         val = vbat_adc.read()
-        val = val * (3.3 / 4095) * (VBAT_CORR / 100)  # correction
-        shared.vbat = round(val, 2)
-        if(val > 0):
+        shared.vbat = round(val * VBAT_CONV_FACTOR, 2)
+
+        if shared.vbat > 0:
             log.debug('vbat', '%sV', shared.vbat)
-        await asyncio.sleep_ms(2000)
+
+        # Adjust sleep time based on voltage level to reduce frequency of checks
+        if shared.vbat > 3.5:
+            sleep_time = 3000
+        elif shared.vbat > 3.2:
+            sleep_time = 2000
+        else:
+            sleep_time = 1000
+
+        await asyncio.sleep_ms(sleep_time)
 
 
-# FIXME: sync     
 async def task_blink(shared):
     while True:
-        sleep_time = 1000
-        color = (0, 0, 10, 0)
-
         vbat = shared.vbat
         if vbat > 4.0:
             color = (0, 10, 0, 0)
@@ -192,39 +198,44 @@ async def task_blink(shared):
             shared.balance = 0
         elif vbat > 3.8:
             color = (5, 5, 0, 0)
+            sleep_time = 1000
             shared.balance = -0.1
         elif vbat > 3.5:
             color = (10, 0, 0, 0)
             sleep_time = 750
             shared.balance = -0.3
         elif vbat > 3.2:
-            sleep_time = 500
             color = (10, 0, 5, 0)
+            sleep_time = 500
             shared.balance = -0.5
             shared.low_power = True
         else:
+            color = (0, 0, 10, 0)
+            sleep_time = 1000
             shared.balance = 0
-            shared.low_power = False     
+            shared.low_power = False
 
         led_board[0] = color
         led_board.write()
-        await asyncio.sleep_ms(20)
+        await asyncio.sleep(0.02)
         led_board[0] = (0, 0, 0)
         led_board.write()
-        await asyncio.sleep_ms(sleep_time)
+        await asyncio.sleep(sleep_time / 1000)
 
 
 # async def task_network(shared):
-#     # https://github.com/mitchins/micropython-wifimanager#asynchronous-usage-event-loop
 #     WifiManager.start_managing()
-#     while True:
-#         if (WifiManager.wlan().status() == 1010):
-#             shared.ifconfig = WifiManager.ifconfig()
-#             # got connected
-#             log.info('net', 'connected: {}'.format(shared.ifconfig))
-#             # done here
-#             return
-#         await asyncio.sleep_ms(250)
+#     await asyncio.sleep_ms(250)  # Adjust sleep duration as needed
+#     try:
+#         while True:
+#             # Check if WiFi is connected
+#             if WifiManager.wlan().status() == 1010:
+#                 shared.ifconfig = WifiManager.ifconfig()
+#                 log.info('net', 'connected: {}'.format(shared.ifconfig))
+#                 return  # Exit function once connected
+#             await asyncio.sleep_ms(500)  # Adjust sleep duration as needed
+#     except Exception as e:
+#         log.error('net', 'error connecting to wifi: {}'.format(e))
 
 
 # async def task_gc():
@@ -260,16 +271,20 @@ async def task_led_strip(shared):
 
 async def task_twinkle(shared):
     random.seed()
+    flash_delay = 20  # Delay in milliseconds for the flash
+    no_flash_delay = 1000  # Delay in milliseconds for no flash
+
     while True:
-        if(shared.flash):
+        if shared.flash:
             rand_led = random.randint(0, NUM_LEDS - 1)
-            if(rand_led % 2):
-                led_strip[rand_led] = (210,210,210)
-                led_strip.write()
-                await asyncio.sleep_ms(20)
-            await asyncio.sleep_ms(600)
+            led_strip[rand_led] = (210, 210, 210) if rand_led % 2 else (0, 0, 0)
+            led_strip.write()
+            await asyncio.sleep_ms(flash_delay)
+            led_strip[rand_led] = (0, 0, 0)  # Turn off the LED
+            led_strip.write()
+            await asyncio.sleep_ms(600 - flash_delay)  # Compensate for the flash delay
         else:
-            await asyncio.sleep_ms(1000)
+            await asyncio.sleep_ms(no_flash_delay)
 
 
 # TODO: revamp
