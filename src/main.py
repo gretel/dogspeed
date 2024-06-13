@@ -9,6 +9,7 @@ import fancyled as fancy
 from BMI160 import BMI160_I2C
 import uasyncio as asyncio
 from primitives import EButton
+import aioprof
 import aiorepl
 import filters
 #from wifi_manager import WifiManager
@@ -22,6 +23,7 @@ class Shared:
         self.vbat = 0
 
         self.bright = 0.6
+        self.delta = 0
         self.flash = 1
         self.ifconfig = {}
         self.low_power = False
@@ -81,13 +83,6 @@ async def eb_double(shared):
         button.double.clear()  # Clear the event flag
         shared.flash = not shared.flash  # Toggle the flash state
         log.info('btn', 'flash: {}'.format(shared.flash))  # Log the current flash state directly
-
-
-# async def eb_release(shared):
-#     while True:
-#         button.release.clear()
-#         await button.release.wait()
-#         # log.debug('btn', 'release')
 
 
 def read_json(filename):
@@ -160,8 +155,8 @@ async def task_imu(shared):
            sleep_time = 1000
        else:
            # Adjust sleep_time based on the rate of change in sensor data
-           delta = abs(sum_rotation - shared.rot_avg_long)
-           sleep_time = max(50, 200 - int(delta) // 10)
+           shared.delta = int(abs(sum_rotation - shared.rot_avg_long))
+           sleep_time = max(50, 200 - shared.delta // 10)
 
        await asyncio.sleep_ms(sleep_time)
 
@@ -266,7 +261,10 @@ async def task_led_strip(shared):
             color_packed = color.pack()
             led_strip[i] = ((color_packed & 0xff0000) >> 16, (color_packed & 0xff00) >> 8, color_packed & 0xff)
         led_strip.write()
-        await asyncio.sleep_ms(20)
+
+        sleep_time = max(20, 100 - shared.delta // 10)
+        #print(sleep_time)
+        await asyncio.sleep_ms(sleep_time)
 
 
 async def task_twinkle(shared):
@@ -285,6 +283,12 @@ async def task_twinkle(shared):
             await asyncio.sleep_ms(600 - flash_delay)  # Compensate for the flash delay
         else:
             await asyncio.sleep_ms(no_flash_delay)
+
+
+async def task_prof():
+    while True:
+        aioprof.report()
+        await asyncio.sleep_ms(5000)
 
 
 # TODO: revamp
@@ -427,6 +431,7 @@ mixer_palette.append([
     fancy.CRGB(0.0, 0.0, 0.0),
 ])
 
+aioprof.enable()
 
 async def main():
     tasks = []
@@ -439,10 +444,11 @@ async def main():
     tasks.append(asyncio.create_task(task_led_strip(shared)))
     tasks.append(asyncio.create_task(eb_press(shared)))
     tasks.append(asyncio.create_task(eb_double(shared)))
-    # tasks.append(asyncio.create_task(eb_release(shared)))
     tasks.append(asyncio.create_task(eb_long(shared)))
     # tasks.append(asyncio.create_task(task_network(shared)))
+
     # gc = asyncio.create_task(task_gc())
+    # tasks.append(asyncio.create_task(task_prof()))
     repl = asyncio.create_task(aiorepl.task())
     await asyncio.gather(*tasks, repl)
 
